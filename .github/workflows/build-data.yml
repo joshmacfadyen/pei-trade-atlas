@@ -54,8 +54,8 @@ jobs:
           python ../scripts/build_data.py "${{ steps.wb.outputs.path }}"
           # record the last commit that changed the workbook, for the link beside its filename
           cd ..
-          SHA=$(git log -1 --format=%H -- "data/*.xlsx")
-          DATE=$(git log -1 --format=%cI -- "data/*.xlsx")
+          SHA=$(git log -1 --format=%H -- "Data/*.xlsx")
+          DATE=$(git log -1 --format=%cI -- "Data/*.xlsx")
           python - "$SHA" "$DATE" "${{ github.server_url }}/${{ github.repository }}" <<'PY'
           import json, sys
           sha, date, repo = sys.argv[1:4]
