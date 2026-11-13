@@ -1,22 +1,35 @@
-name: Build data.json
+name: Build and deploy the atlas
 
-# Rebuilds docs/data.json whenever the workbook or the cleaning scripts change,
-# commits it, then GitHub Pages serves the updated page.
+# Builds data.json from the workbook in Data/ and publishes docs/ to GitHub Pages.
+# Nothing is committed back to main (main is protected), so data.json is built
+# fresh on every deploy instead of being stored in the repo.
+#
+# One-time setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+#
+# On a pull request it builds only, so you can check the summary before merging.
 on:
   push:
     branches: [main]
     paths:
-      - "Data/**.xlsx"
-      - "Data/routes.json"
+      - "Data/**"
       - "scripts/**"
+      - "docs/**"
+      - ".github/workflows/build-data.yml"
+  pull_request:
+    paths:
+      - "Data/**"
+      - "scripts/**"
+      - "docs/**"
       - ".github/workflows/build-data.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: build-data
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -47,13 +60,20 @@ jobs:
 
       - name: Clean the workbook and build data.json
         run: |
-          mkdir -p build docs
+          mkdir -p build
           cp Data/routes.json build/
           cd build
           python ../scripts/prep.py "${{ steps.wb.outputs.path }}" rows.pkl
           python ../scripts/build_data.py "${{ steps.wb.outputs.path }}"
-          # record the last commit that changed the workbook, for the link beside its filename
-          cd ..
+
+      - name: Explain anchors and chain cables
+        working-directory: build
+        run: |
+          python ../scripts/build_data.py "${{ steps.wb.outputs.path }}" --explain "Anchors" | tee explain.txt
+          { echo "### SITC categories: anchors and chain cables"; echo '```'; cat explain.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record the last commit that changed the workbook
+        run: |
           SHA=$(git log -1 --format=%H -- "Data/*.xlsx")
           DATE=$(git log -1 --format=%cI -- "Data/*.xlsx")
           python - "$SHA" "$DATE" "${{ github.server_url }}/${{ github.repository }}" <<'PY'
@@ -64,16 +84,27 @@ jobs:
               d['source']['commit'] = {'sha': sha, 'date': date, 'url': f'{repo}/commit/{sha}'}
           json.dump(d, open('build/data.json', 'w'), separators=(',', ':'))
           PY
-          cd build
-          cp data.json ../docs/data.json
-          echo "### data.json rebuilt" >> "$GITHUB_STEP_SUMMARY"
-          python -c "import json;d=json.load(open('data.json'));print('Entries:',len(d['entries']),'| Years:',d['years'])" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit data.json if it changed
+      - name: Assemble the site
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
-          git add docs/data.json
-          git diff --cached --quiet && echo "No change to data.json" && exit 0
-          git commit -m "Rebuild data.json from $(basename "${{ steps.wb.outputs.path }}")"
-          git push
+          mkdir -p _site
+          cp -r docs/. _site/
+          cp build/data.json _site/data.json
+          touch _site/.nojekyll
+          echo "### data.json built" >> "$GITHUB_STEP_SUMMARY"
+          python -c "import json;d=json.load(open('_site/data.json'));print('Entries:',len(d['entries']),'| Years:',d['years'])" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
