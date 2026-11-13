@@ -1,33 +1,25 @@
 import pandas as pd, sys, json, re
 f=sys.argv[1]; out=sys.argv[2]
-im=pd.read_excel(f,'Imports',dtype={'Commodity_Category':str}); ex=pd.read_excel(f,'Exports')
+im=pd.read_excel(f,'Imports',dtype={'Commodity_Category':str}); ex=pd.read_excel(f,'Exports',dtype={'Commodity_Category':str})
 s=pd.read_excel(f,'SITC 4',header=1,dtype=str)
 ref=dict(zip(s.ProductCode.str.strip(),s.ProductDescription.str.strip()))
-e=pd.read_excel(f,'Entry',header=None,dtype=str)
-amap={a.strip():c.split(' - ')[0].strip() for a,c in e.iloc[2:,[14,15]].dropna().values}
 
 PORT={'Murray Harbor':'Murray Harbour','Cascumpeque':'Cascumpec','St. Peters':"St. Peter's",'Pinnette':'Pinette','Colville  Bay':'Colville Bay'}
 CTRY={'St Pierre':'Saint-Pierre & Miquelon','Saint Pierre (Miquelon)':'Saint-Pierre & Miquelon','Saint Pierre and Miquelon':'Saint-Pierre & Miquelon',
       'Foreign W. Indies':'West Indies'}
-# ambiguous export codes (integer codes lost leading zeros): pick by article meaning
-EXOVR={('Potatoes','541'):'0541',('Eggs','251'):'0251',('Tea','741'):'0741',('Coffee','7111'):'07111',
- ('Tobacco','1212'):'1212',('Flaxseed','2231'):'2231',('Fish (Salmon & Lobsters)','3'):'03'}
-def ex_code(a,c):
-    c=str(int(c)); a=a.strip()
-    if (a,c) in EXOVR: return EXOVR[(a,c)]
-    if a.startswith('Oil'): return '4'
-    cands=[('0'*k)+c for k in range(0,6-len(c)) if ('0'*k)+c in ref]
-    if len(cands)==1: return cands[0]
-    al=a.lower()
-    if any(w in al for w in ['pork','mutton','sheep','calves','animal']):
-        # meat / live animals: section 0 reading
-        z=[x for x in cands if x.startswith('0')]
-        live=[x for x in z if x.startswith('00')]
-        if ('sheep' in al or 'calves' in al or 'animal' in al) and live: return live[0]
-        return z[0]
-    z=[x for x in cands if x.startswith('0')]
-    if z: return z[0]   # fewest restored zeros: the food reading
-    raise Exception((a,c,cands))
+def sitc_code(value):
+    """SITC code for an entry, read from its own Commodity_Category cell and checked against the SITC 4 sheet.
+    Returns (code or None, reason). Codes are kept as text so leading zeros survive (0452 = oats)."""
+    if value is None or (isinstance(value,float) and pd.isna(value)): return None, 'Commodity_Category is empty: unclassified'
+    c=str(value).strip()
+    if c.endswith('.0'): c=c[:-2]            # a code typed as a number
+    if c in ref: return c, f'Commodity_Category {c} = SITC 4 "{ref[c]}"'
+    if c.isdigit():                           # a number that lost its leading zeros
+        for k in range(1,6-len(c)):
+            z='0'*k+c
+            if z in ref: return z, f'Commodity_Category {c} is not in SITC 4 as written; read as {z} ("{ref[z]}")'
+    return None, f'Commodity_Category "{c}" is not in SITC 4: unclassified'
+
 FIXED=[]; BLANK=[]
 def lsd(x):
     if x is None or (isinstance(x,float) and pd.isna(x)): return None
@@ -57,16 +49,16 @@ for i,r in im.iterrows():
         BLANK.append((r.Article,r.harbour_name,int(r.Year))); v=q   # Value (£) left blank: use the printed £ s d
     if pd.isna(v) or v<=0: continue
     if q is not None and abs(q-v)>0.01: FIXED.append((r.Article,r.harbour_name,int(r.Year),r['Value_Of_Total_Imports'],v,q)); v=q   # formula dropped the pounds
-    code=amap.get(str(r.Article).strip())
+    code,how=sitc_code(r.Commodity_Category)
     rows.append(dict(d='Imports',y=int(r.Year),c=r.Cleaned_Country_Names if pd.notna(r.Cleaned_Country_Names) else rawc(r.Country),
-        p=PORT.get(r.harbour_name,r.harbour_name),a=str(r.Article).strip(),code=code,v=float(v),
+        p=PORT.get(r.harbour_name,r.harbour_name),a=str(r.Article).strip(),code=code,how=how,v=float(v),
         xr=i+2,ra=txt(r.Article),rc=txt(r.Country),rh=txt(r.harbour_name),pv=txt(r['Value_Of_Total_Imports']),wv=float(r['Value (£)']),
         pg=txt(r.Page),src=txt(r.Source),qty=txt(r.Total)))
 for i,r in ex.iterrows():
     v=r['Value()']
     if pd.isna(v) or v<=0: continue
     rows.append(dict(d='Exports',y=int(r.Year),c=r.Cleaned_Country_Names,p=PORT.get(r.Cleaned_port_names,r.Cleaned_port_names),
-        a=str(r.Articles).strip(),code=ex_code(r.Articles,r.Commodity_Category),v=float(v),
+        a=str(r.Articles).strip(),code=sitc_code(r.Commodity_Category)[0],how=sitc_code(r.Commodity_Category)[1],v=float(v),
         xr=i+2,ra=txt(r.Articles),rc=txt(r.Country),rh=txt(r.Port),pv=txt(r.Value_of_Total_Exports),wv=float(r['Value()']),
         pg=txt(r.Page),src=txt(r.Source) if 'Source' in ex.columns else '',qty=' / '.join(x for x in [txt(r.total_PMC),txt(r.total_NonPMC)] if x)))
 df=pd.DataFrame(rows)
@@ -82,4 +74,4 @@ for d,g in df.groupby('d'):
     print(g.groupby('y').v.sum().round().to_string())
 df.to_pickle(out)
 import json as _j; _j.dump([list(map(str,x)) for x in FIXED],open('fixed_values.json','w'),indent=1)
-print('blank Value (£) filled from printed £sd:',len(BLANK)); print('unmapped SITC articles:',sorted(set(a for a,c in zip(df.a,df.code) if c is None and isinstance(a,str)))[:20]); print('fixed',len(FIXED),'adds £',round(sum(q-v for *_,v,q in FIXED),2))
+print('blank Value (£) filled from printed £sd:',len(BLANK)); print('unclassified entries:',sorted(set(f'{a} ({h})' for a,c,h in zip(df.a,df.code,df.how) if not isinstance(c,str)))[:20]); print('fixed',len(FIXED),'adds £',round(sum(q-v for *_,v,q in FIXED),2))
