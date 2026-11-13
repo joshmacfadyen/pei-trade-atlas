@@ -6,8 +6,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "data/**.xlsx"
-      - "data/routes.json"
+      - "Data/**.xlsx"
+      - "Data/routes.json"
       - "scripts/**"
       - ".github/workflows/build-data.yml"
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
         id: wb
         run: |
           shopt -s nullglob
-          files=(data/*.xlsx)
+          files=(Data/*.xlsx)
           if [ ${#files[@]} -ne 1 ]; then
             echo "::error::Expected exactly one .xlsx in data/, found ${#files[@]}"; exit 1
           fi
@@ -48,14 +48,14 @@ jobs:
       - name: Clean the workbook and build data.json
         run: |
           mkdir -p build docs
-          cp data/routes.json build/
+          cp Data/routes.json build/
           cd build
           python ../scripts/prep.py "${{ steps.wb.outputs.path }}" rows.pkl
           python ../scripts/build_data.py "${{ steps.wb.outputs.path }}"
           # record the last commit that changed the workbook, for the link beside its filename
           cd ..
-          SHA=$(git log -1 --format=%H -- "data/*.xlsx")
-          DATE=$(git log -1 --format=%cI -- "data/*.xlsx")
+          SHA=$(git log -1 --format=%H -- "Data/*.xlsx")
+          DATE=$(git log -1 --format=%cI -- "Data/*.xlsx")
           python - "$SHA" "$DATE" "${{ github.server_url }}/${{ github.repository }}" <<'PY'
           import json, sys
           sha, date, repo = sys.argv[1:4]
