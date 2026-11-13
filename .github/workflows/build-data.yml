@@ -1,0 +1,79 @@
+name: Build data.json
+
+# Rebuilds docs/data.json whenever the workbook or the cleaning scripts change,
+# commits it, then GitHub Pages serves the updated page.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/**.xlsx"
+      - "data/routes.json"
+      - "scripts/**"
+      - ".github/workflows/build-data.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-data
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, to find the last commit that touched the workbook
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - run: pip install -r scripts/requirements.txt
+
+      - name: Find the workbook
+        id: wb
+        run: |
+          shopt -s nullglob
+          files=(data/*.xlsx)
+          if [ ${#files[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one .xlsx in data/, found ${#files[@]}"; exit 1
+          fi
+          echo "path=$(realpath "${files[0]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Clean the workbook and build data.json
+        run: |
+          mkdir -p build docs
+          cp data/routes.json build/
+          cd build
+          python ../scripts/prep.py "${{ steps.wb.outputs.path }}" rows.pkl
+          python ../scripts/build_data.py "${{ steps.wb.outputs.path }}"
+          # record the last commit that changed the workbook, for the link beside its filename
+          cd ..
+          SHA=$(git log -1 --format=%H -- "data/*.xlsx")
+          DATE=$(git log -1 --format=%cI -- "data/*.xlsx")
+          python - "$SHA" "$DATE" "${{ github.server_url }}/${{ github.repository }}" <<'PY'
+          import json, sys
+          sha, date, repo = sys.argv[1:4]
+          d = json.load(open('build/data.json'))
+          if sha:
+              d['source']['commit'] = {'sha': sha, 'date': date, 'url': f'{repo}/commit/{sha}'}
+          json.dump(d, open('build/data.json', 'w'), separators=(',', ':'))
+          PY
+          cd build
+          cp data.json ../docs/data.json
+          echo "### data.json rebuilt" >> "$GITHUB_STEP_SUMMARY"
+          python -c "import json;d=json.load(open('data.json'));print('Entries:',len(d['entries']),'| Years:',d['years'])" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit data.json if it changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json
+          git diff --cached --quiet && echo "No change to data.json" && exit 0
+          git commit -m "Rebuild data.json from $(basename "${{ steps.wb.outputs.path }}")"
+          git push
