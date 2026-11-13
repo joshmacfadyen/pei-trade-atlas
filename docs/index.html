@@ -10,9 +10,10 @@
 <link rel="stylesheet" href="atlas.css">
 </head>
 <body>
+<a class="skip" href="#tableview">Skip to the data tables</a>
 
 
-<div class="atlas">
+<main class="atlas">
   <p id="loading" class="status" role="status">Loading the trade returns…</p>
   <header class="masthead">
     <h1 id="h1">Prince Edward Island Trade Returns</h1>
@@ -24,9 +25,9 @@
 
   <div class="bar">
     <nav class="contents" role="tablist" aria-label="Plates">
-      <button role="tab" id="tab-flow-map" data-view="flow-map"><span class="pl">Plate A</span>Flow map with pies</button>
-      <button role="tab" id="tab-compass" data-view="compass"><span class="pl">Plate B</span>Harbour compass</button>
-      <button role="tab" id="tab-sunburst" data-view="sunburst"><span class="pl">Plate C</span>Sunburst</button>
+      <button role="tab" id="tab-flow-map" data-view="flow-map" aria-controls="view-flow-map"><span class="pl"><span class="pl-w">Plate </span>A</span><span class="t-long">Flow map with pies</span><span class="t-short">Flow map</span></button>
+      <button role="tab" id="tab-compass" data-view="compass" aria-controls="view-compass"><span class="pl"><span class="pl-w">Plate </span>B</span><span class="t-long">Harbour compass</span><span class="t-short">Compass</span></button>
+      <button role="tab" id="tab-sunburst" data-view="sunburst" aria-controls="view-sunburst"><span class="pl"><span class="pl-w">Plate </span>C</span>Sunburst</button>
     </nav>
     <div class="controls">
       <div class="ctl search">
@@ -34,18 +35,20 @@
         <div class="combo">
           <svg class="q-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.3 10.3l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           <input id="q" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-list" autocomplete="off" spellcheck="false" placeholder="Search: tea, flour, timber…">
+          <button type="button" class="q-clear" id="q-clear" aria-label="Clear the goods and category filters" hidden><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
           <ul id="q-list" role="listbox" aria-label="Matching goods" hidden></ul>
         </div>
       </div>
       <div class="ctl"><span class="ctl-l" id="lab-dir">Trade</span><div class="seg" id="f-dir" role="group" aria-labelledby="lab-dir"></div></div>
       <div class="ctl"><span class="ctl-l" id="lab-year">Year</span><div class="seg" id="f-year" role="group" aria-labelledby="lab-year"></div></div>
+      <button type="button" class="textbtn" id="present" aria-pressed="false">Presentation view</button>
     </div>
   </div>
   <nav class="jump" id="jump" aria-label="Appendices"></nav>
   <div class="pinned" id="pinned" aria-live="polite"></div>
 
   <!-- Plate A -->
-  <section class="plate" id="view-flow-map" aria-labelledby="h-a">
+  <section class="plate" id="view-flow-map" role="tabpanel" aria-labelledby="h-a">
     <h2 id="h-a"><span class="pl">Plate A</span><span id="a-title"></span></h2>
     <div class="plate-body">
       <div class="figcol">
@@ -58,13 +61,13 @@
         <p class="caption" id="a-pcap"></p>
         <div class="keys" id="a-pkeys"></div>
       </div>
-      <aside class="margin" id="a-margin" aria-label="Key and commentary"></aside>
+      <div class="margin" id="a-margin" role="group" aria-label="Key and commentary"></div>
     </div>
     <p class="plate-foot" id="a-foot"></p>
   </section>
 
   <!-- Plate B -->
-  <section class="plate" id="view-compass" aria-labelledby="h-b" hidden>
+  <section class="plate" id="view-compass" role="tabpanel" aria-labelledby="h-b" hidden>
     <h2 id="h-b"><span class="pl">Plate B</span><span id="b-title"></span></h2>
     <div class="plate-body">
       <div class="figcol">
@@ -72,13 +75,13 @@
         <p class="caption" id="b-cap"></p>
         <div class="keys" id="b-keys"></div>
       </div>
-      <aside class="margin" id="b-margin" aria-label="Key and commentary"></aside>
+      <div class="margin" id="b-margin" role="group" aria-label="Key and commentary"></div>
     </div>
     <p class="plate-foot" id="b-foot"></p>
   </section>
 
   <!-- Plate C -->
-  <section class="plate" id="view-sunburst" aria-labelledby="h-c" hidden>
+  <section class="plate" id="view-sunburst" role="tabpanel" aria-labelledby="h-c" hidden>
     <h2 id="h-c"><span class="pl">Plate C</span><span id="c-title"></span></h2>
     <div class="toolbar"><div class="ctl"><span class="ctl-l" id="lab-hier">Rings, inside to out</span><div class="seg" id="f-hier" role="group" aria-labelledby="lab-hier"></div></div></div>
     <div class="plate-body">
@@ -86,7 +89,7 @@
         <div class="fig" id="c-chart"></div>
         <p class="caption" id="c-cap">Each ring divides the ring inside it, and angle shows share of value. Below each SITC category (tier one) come its division (tier two), group (tier three) and subgroup (tier four); click an arc to go down a level, and the centre to come back up. “No finer code” marks entries classified only to a coarser tier. Colour always means SITC category; grey rings are places and harbours.</p>
       </div>
-      <aside class="margin" id="c-margin" aria-label="Breakdown"></aside>
+      <div class="margin" id="c-margin" role="group" aria-label="Breakdown"></div>
     </div>
     <p class="plate-foot" id="c-foot"></p>
   </section>
@@ -94,7 +97,7 @@
   <details class="appendix" id="tableview" open>
     <summary><span class="pl">Appendix A</span>Values by <span id="tv-what">origin</span> and SITC category</summary>
     <div class="tv-controls"><span class="ctl-l" id="lab-tv">Rows</span><div class="seg" id="f-tv" role="group" aria-labelledby="lab-tv"></div></div>
-    <div class="tv-scroll"><table id="tv"></table></div>
+    <div class="tv-scroll" tabindex="0" role="region" aria-label="Appendix A table"><table id="tv"></table></div>
   </details>
 
   <details class="appendix" id="entries-view" open>
@@ -106,14 +109,14 @@
       <span class="zhint" id="ev-status" aria-live="polite"></span>
     </div>
     <textarea id="ev-fallback" hidden readonly rows="6" style="width:100%; font-size:12px" aria-label="CSV of the entries; select and copy"></textarea>
-    <div class="tv-scroll"><table id="ev"></table></div>
+    <div class="tv-scroll" tabindex="0" role="region" aria-label="Appendix B table"><table id="ev"></table></div>
     <div class="tv-controls"><button type="button" class="textbtn" id="ev-more"></button></div>
   </details>
 
   <details class="appendix" id="recon-view">
     <summary><span class="pl">Appendix C</span>Entries checked against the printed port totals</summary>
     <p class="caption">The import returns print an all-countries total for most harbours. This compares each printed total, as transcribed in the workbook, with the sum of the entries above it. Export returns print no such totals.</p>
-    <div class="tv-scroll"><table id="rc"></table></div>
+    <div class="tv-scroll" tabindex="0" role="region" aria-label="Appendix C table"><table id="rc"></table></div>
   </details>
 
   <section class="notes" aria-labelledby="h-notes">
@@ -121,7 +124,7 @@
     <ol>
       <li id="note-1"><strong>Source.</strong> The <code>Imports</code> and <code>Exports</code> sheets of the transcription workbook (<span id="n-file"></span>). <span id="n-src"></span> Only entries with a value are used (<span id="n-count"></span>). Subtotal lines such as “Total imports from Nova Scotia” carry no value and are left out. <span id="n-recon"></span></li>
       <li id="note-2"><strong>Values.</strong> Figures are decimal pounds converted from the £ s d in the returns; tooltips and the margin also give £ s d. <span id="n-fixed"></span></li>
-      <li id="note-3"><strong>SITC sections were re-derived.</strong> The workbook’s <code>tier_one/two/three</code> columns were built from codes padded to five digits, so beer (1123) became 01123, “meat of bovine animals”, and 95% of import value fell under Food. Imports here use the article-to-code list on the <code>Entry</code> sheet. Export codes get back the leading zeros they lost (oats 452 becomes 0452). Where both readings were valid SITC codes, the article decides (potatoes become 0541, not 541 medicines).</li>
+      <li id="note-3"><strong>SITC codes.</strong> Each entry’s code is its own <code>Commodity_Category</code> cell on the <code>Imports</code> or <code>Exports</code> sheet, checked against the workbook’s <code>SITC 4</code> sheet. Codes are read as text, so leading zeros survive (oats are 0452, not 452). Category, division, group and subgroup are worked out from that code rather than read from the <code>tier_one/two/three</code> columns. Entries whose code is missing from <code>SITC 4</code> would be counted under Other; there are none in this workbook.</li>
       <li id="note-4"><strong>Other</strong> groups <span id="n-other"></span>, so the key has <span id="n-ncat"></span> categories. Category, division, group and subgroup names come from the workbook’s <code>SITC 4</code> sheet.</li>
       <li id="note-5"><strong>Places.</strong> The returns name a colony or country, not a port, so each is drawn at a representative port: Halifax, Saint John, Boston, Quebec, St. John’s, Havre Aubert and Saint-Pierre. Britain, France, Bermuda and the West Indies lie beyond the map; they are drawn in open water at its edge, on their line of approach, with an arrow toward Liverpool, Saint-Malo, Hamilton and the Caribbean. “St Pierre” is merged with Saint-Pierre &amp; Miquelon, and “Foreign W. Indies” (6 export entries) with West Indies.</li>
       <li id="note-6"><strong>Harbours.</strong> Spelling variants are merged (Murray Harbor/Harbour, Cascumpec/Cascumpeque, St. Peters/St. Peter’s, Pinette/Pinnette). Harbour positions are approximate: each dot sits at the water’s edge of its harbour or bay, up to 3.3 km (Tignish) from the settlement, so that the routes can reach it.</li>
@@ -131,7 +134,7 @@
       <li id="note-10"><strong>Checking a figure.</strong> Appendix B lists every workbook entry behind the current view, with the value as printed in £ s d, the page or Canadiana page link, and the workbook row, so any number on a plate can be traced to its line in the returns. Appendix C sets the entries against the harbours’ printed totals.</li>
     </ol>
   </section>
-</div>
+</main>
 <div class="tip" id="tip" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" defer></script>

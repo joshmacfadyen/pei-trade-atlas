@@ -43,6 +43,11 @@ function goodsMatch(art,dk){ const g=state.search; if(!g) return true; return g.
 function cur(){ const b=base(); return b.filter(r=>(state.cat<0||r.cat===state.cat)&&goodsMatch(r.art,r.dk)); }
 function entryMatch(e,k){ return e[0]===state.dir&&(state.year<0||e[1]===state.year)&&(state.cat<0||e[4]===state.cat)&&goodsMatch(e[16],e[17])&&(!k||keyMatch(k,{pl:e[2],po:e[3]})); }
 const goodsPhrase=()=>state.search? state.search.phrase : '';
+const shortCat=i=>{ const t=CATS[i].label.replace(/ and .*/,''); return t.length>15? t.split(' ')[0] : t; };   // "Food", "Manufactured goods"
+const scopeNoun=()=>(state.cat>=0? `${CATP[state.cat]} ${dirL()}` : dirL())+(state.search? ` of ${goodsPhrase()}` : '');
+const scopeAll=()=>state.cat>=0||state.search? scopeNoun() : 'all '+dirL();   // what a share is a share of
+const scopeTitle=()=>state.search? `${cap(state.search.label)}, all ${dirL()}` : state.cat>=0? `${cap(CATP[state.cat])}, all ${dirL()}` : `All ${dirL()}`;
+const TOUCH=window.matchMedia('(hover: none)').matches;
 function filterNote(){ return [state.cat>=0? CATS[state.cat].label+' only' : null, state.search? 'goods: '+state.search.label : null].filter(Boolean).join(', '); }
 function catSums(rows){ const s=new Array(NC).fill(0); for(const r of rows) s[r.cat]+=r.v; return s; }
 const sum=rows=>d3.sum(rows,r=>r.v);
@@ -75,16 +80,30 @@ function tipBreakdown(t,name,rows,extra){
   const g=el('div','t-rows');
   s.map((v,i)=>({v,i})).filter(d=>d.v>0).sort((a,b)=>b.v-a.v).forEach(d=>{ const k=el('span','t-key'); k.style.background=ccol(d.i); g.append(k, el('span',null,CATS[d.i].label), el('span','r',gbpS(d.v)), el('span','m',pct(d.v,tot))); });
   if(tot>0) t.append(g);
-  const top=topArticles(rows,3); if(top.length) t.append(el('div','t-note','Largest entries: '+top.join(', ')+'.'));
+  const top=topArticles(rows,3); if(top.length) t.append(el('div','t-note','Largest entries: '+top.join('; ')+'.'));
 }
 function bindNode(sel,keyOf,tipOf,labelOf,onChange){
-  sel.attr('tabindex',0).attr('role','button').attr('aria-label',d=>labelOf(d))
+  sel.attr('tabindex',-1).attr('role','button').attr('aria-label',d=>labelOf(d))
     .on('pointerenter pointermove',(e,d)=>{ const k=keyOf(d); if(state.hover!==k){ state.hover=k; onChange(); } showTip(e,t=>tipOf(t,d)); })
     .on('pointerleave',()=>{ state.hover=null; hideTip(); onChange(); })
     .on('focus',(e,d)=>{ state.hover=keyOf(d); onChange(); showTip(e,t=>tipOf(t,d)); })
     .on('blur',()=>{ state.hover=null; hideTip(); onChange(); })
     .on('click',(e,d)=>{ e.stopPropagation(); togglePin(keyOf(d)); hideTip(); })
     .on('keydown',(e,d)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); togglePin(keyOf(d)); } });
+}
+/* one tab stop per figure: Tab reaches the figure, arrow keys (and Home/End) move between its marks */
+function rove(svgNode,cand,order){
+  const ok=cand||(n=>n.getAttribute('pointer-events')!=='none'&&!n.closest('[style*="display: none"]'));
+  const all=()=>svgNode.querySelectorAll('[role=button]'), list=()=>{ const L=[...all()].filter(ok); return order? L.sort(order) : L; };
+  const stop=n=>{ all().forEach(x=>x.setAttribute('tabindex','-1')); if(n) n.setAttribute('tabindex','0'); };
+  svgNode.__rove=()=>{ const L=list(), a=document.activeElement, inside=svgNode.contains(a);
+    const keep=L.find(n=>n.getAttribute('tabindex')==='0'); stop(inside&&L.includes(a)? a : keep||L[0]);
+    if(inside&&!L.includes(a)&&L[0]) L[0].focus(); };
+  svgNode.addEventListener('focusin',e=>{ if(e.target.getAttribute&&e.target.getAttribute('role')==='button') stop(e.target); });
+  svgNode.addEventListener('keydown',e=>{ const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1,Home:'h',End:'e'}[e.key]; if(step===undefined) return;
+    const L=list(); if(!L.length) return; e.preventDefault(); let i=L.indexOf(document.activeElement);
+    i= step==='h'? 0 : step==='e'? L.length-1 : i<0? 0 : (i+step+L.length)%L.length; L[i].focus(); });
+  svgNode.__rove();
 }
 function togglePin(k){ state.lock = state.lock===k? null : k; state.hover=null; renderPinned(); updateView(); EV.shown=100; renderEntries(); }
 
@@ -106,10 +125,11 @@ function drawPie(g,sums,r,opts={}){
   g.selectAll('*').remove();
   if(tot<=0||r<=0){ g.append('circle').attr('r',2.2).style('fill','var(--hair)'); return; }
   g.append('circle').attr('r',r+1.6).style('fill',ground);
-  if(r<4.5){ g.append('circle').attr('r',Math.max(r,2.8)).style('fill',ccol(d3.maxIndex(sums))); return; }
+  if(r<4.5){ g.append('circle').attr('r',Math.max(r,2.8)).style('fill',ccol(d3.maxIndex(sums))).style('stroke','var(--ink-2)').style('stroke-opacity',.6).style('stroke-width',.7); return; }
   const data=pieGen(sums.map((v,i)=>({v,i})).filter(d=>d.v>0));
   g.selectAll('path').data(data).join('path').attr('d',d3.arc().innerRadius(0).outerRadius(r)).style('fill',d=>ccol(d.data.i))
     .style('stroke',ground).style('stroke-width',data.length>1?(opts.gap||(r>14?1.6:1)):0).style('stroke-linejoin','round');
+  g.append('circle').attr('r',r).style('fill','none').style('stroke','var(--ink-2)').style('stroke-opacity',.55).style('stroke-width',.75);
   if(opts.labels){ const la=d3.arc().innerRadius(r*0.64).outerRadius(r*0.64);
     g.selectAll('text').data(data.filter(d=>d.endAngle-d.startAngle>0.34)).join('text').attr('transform',d=>`translate(${la.centroid(d)})`).attr('text-anchor','middle').attr('dy','0.35em')
       .style('font-size','12.5px').style('font-weight',600).style('fill',d=>oncol(d.data.i)).text(d=>pct(d.data.v,tot)); }
@@ -119,7 +139,7 @@ function rectCircle(B,c){ const nx=Math.max(B.x,Math.min(c.x,B.x+B.w)), ny=Math.
 function placeLabels(items,W,H,bx,obs){
   // Never drops a label: normal positions first, then leader lines at growing distances, then smaller type, then a forced spot.
   const L=bx||{x0:2,y0:2,x1:W-2,y1:H-2}, O=obs||{};
-  const boxes=(O.rects||[]).slice(), fixedN=boxes.length, circles=items.map(d=>({x:d.x,y:d.y,r:d.r+2})), extra=O.circles||[], order=['e','w','n','s','ne','nw','se','sw'];
+  const boxes=(O.rects||[]).slice(), fixedN=boxes.length, circles=items.map(d=>({x:d.x,y:d.y,r:Math.max(d.r,7)+2})), extra=O.circles||[], order=['e','w','n','s','ne','nw','se','sw'];
   items.forEach((d,idx)=>{
     const node=d.g.node(), parent=node.parentNode;
     parent.querySelectorAll(':scope > line.leader').forEach(n=>n.remove());
@@ -143,8 +163,8 @@ function placeLabels(items,W,H,bx,obs){
       const dx=Math.max(L.x0-B0.x,Math.min(0,L.x1-(B0.x+w))), dy=Math.max(L.y0-B0.y,Math.min(0,L.y1-(B0.y+h))); x0+=dx; y0+=dy; res={x0,y0,B:{x:B0.x+dx,y:B0.y+dy,w,h},asc:-bb.y,lead:false}; }
     boxes.push(res.B);
     d.g.attr('text-anchor','start').attr('x',res.x0).attr('y',res.y0+res.asc); d.g.selectAll('tspan').attr('x',res.x0);
-    if(res.lead){ const bx0=res.x0, by0=res.y0, bw=res.B.w, bh=res.B.h, ex=Math.max(bx0,Math.min(bx0+bw,0)), ey=Math.max(by0,Math.min(by0+bh,0)), a=Math.atan2(ey,ex);
-      d3.select(parent).insert('line',()=>node).attr('class','leader').attr('x1',Math.cos(a)*(d.r+1)).attr('y1',Math.sin(a)*(d.r+1)).attr('x2',ex).attr('y2',ey)
+    if(res.lead||d.lead){ const bx0=res.x0, by0=res.y0, bw=res.B.w, bh=res.B.h, ex=Math.max(bx0,Math.min(bx0+bw,0)), ey=Math.max(by0,Math.min(by0+bh,0)), a=Math.atan2(ey,ex);
+      d3.select(parent).insert('line',()=>node).attr('class','leader').attr('x1',Math.cos(a)*((d.r0??d.r)+2)).attr('y1',Math.sin(a)*((d.r0??d.r)+2)).attr('x2',ex).attr('y2',ey)
         .style('stroke','var(--ink-2)').style('stroke-width',.8).style('pointer-events','none'); }
   });
   return boxes.slice(fixedN);
@@ -224,21 +244,20 @@ const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
 function marginSelection(host,o){
   const k=active(), s=parseKey(k), rows=cur(), sel=k? rows.filter(r=>keyMatch(k,r)) : rows, cs=catSums(sel), tot=d3.sum(cs), all=sum(rows);
   const wrap=el('section','m-sel fade');
-  const title = k? keyLabel(k) : state.search? `${cap(state.search.label)}, all ${dirL()}` : (state.cat>=0? `${cap(CATP[state.cat])}, all ${dirL()}` : `All ${dirL()}`);
+  const title = k? keyLabel(k) : scopeTitle();
   wrap.append(el('h3',null,title), el('p','m-fig',tot>0? gbp(tot) : '£0'));
-  const sub=el('p','m-sub', tot>0? `${lsd(tot)}${k? ', '+pct(tot,all)+' of the total':''}. Returns for ${yearLabel()}.` : `Nothing recorded in ${yearLabel()}.`);
+  const sub=el('p','m-sub', tot>0? `${lsd(tot)}${k? ', '+pct(tot,all)+' of '+scopeAll():''}. Returns for ${yearLabel()}.` : `Nothing recorded in ${yearLabel()}.`);
   wrap.append(sub);
-  if(o.pie && tot>0){ const w=o.pieSize||200, box=el('div','m-pie'); const svg=d3.select(box).append('svg').attr('width',w).attr('height',w).attr('viewBox',`${-w/2} ${-w/2} ${w} ${w}`).attr('role','img').attr('aria-label',`Pie chart of ${title} by SITC category`);
+  if(o.pie && tot>0 && cs.filter(v=>v>0).length>1){ const w=o.pieSize||200, box=el('div','m-pie'); const svg=d3.select(box).append('svg').attr('width',w).attr('height',w).attr('viewBox',`${-w/2} ${-w/2} ${w} ${w}`).attr('role','img').attr('aria-label',`Pie chart of ${title} by SITC category`);
     drawPie(svg.append('g'),cs,w/2-3,{labels:true,ground:'var(--paper)',gap:2}); wrap.append(box); }
   const h=el('h4',null,'By SITC category'); h.append(sup(3)); wrap.append(h);
-  const ul=el('ul','key'); const mx=d3.max(cs)||1;
+  const ul=el('div','key'); ul.setAttribute('role','group'); ul.setAttribute('aria-label','SITC categories'); const mx=d3.max(cs)||1;
   cs.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v||a.i-b.i).forEach(d=>{
-    const li=el('li', d.v>0?'on':'zero'); const nm=el('span','k-name'); const sw=el('span','sw'); sw.style.background=ccol(d.i);
-    const lab=el('span',null,CATS[d.i].label); nm.append(sw,lab); if(d.i===OTHER) lab.append(sup(4));
+    const li=el('div', d.v>0?'on':'zero'); const nm=el('span','k-name'); const sw=el('span','sw'); sw.style.background=ccol(d.i);
+    const lab=el('span',null,CATS[d.i].label); nm.append(sw,lab); if(d.i===OTHER) lab.append(el('sup','n','4'));
     const bar=el('span','k-bar'); const fi=el('i'); fi.style.width=(d.v/mx*100)+'%'; fi.style.background=ccol(d.i); bar.append(fi);
-    li.append(nm, el('span','k-val',d.v>0?gbpS(d.v):'–'), el('span','k-pct',d.v>0?pct(d.v,tot):''), bar); li.title=`${CATS[d.i].name}: ${CATS[d.i].desc}`;
-    li.setAttribute('aria-pressed',String(state.cat===d.i));
-    if(d.v>0||state.cat===d.i){ li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-label',`${CATS[d.i].label}: ${gbp(d.v)}. ${state.cat===d.i?'Show all categories':'Show only this category'}.`);
+    li.append(nm, el('span','k-val',d.v>0?gbpS(d.v):'none'), el('span','k-pct',d.v>0?pct(d.v,tot):''), bar); li.title=`${CATS[d.i].name}: ${CATS[d.i].desc}`;
+    if(d.v>0||state.cat===d.i){ li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-pressed',String(state.cat===d.i)); li.setAttribute('aria-label',`${CATS[d.i].label}: ${gbp(d.v)}. ${state.cat===d.i?'Show all categories':'Show only this category'}.`);
       const act=()=>{ state.cat=state.cat===d.i?-1:d.i; renderAll(); }; li.addEventListener('click',act); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } }); }
     ul.append(li);
   });
@@ -254,9 +273,9 @@ function marginSelection(host,o){
 function harbourList(onChange){
   const rows=cur(), list=rank(rows,'po'), sec=el('section','m-harb');
   const h=el('h4',null, state.dir===0? 'Leading category by harbour of entry' : 'Leading category by harbour of shipment'); sec.append(h);
-  const ol=el('ol','harb'); ol.setAttribute('aria-label','Harbours, largest first');
+  const ol=el('div','harb'); ol.setAttribute('role','group'); ol.setAttribute('aria-label','Harbours, largest first');
   list.forEach(([po,v])=>{
-    const cs=catSums(rows.filter(r=>r.po===po)), ci=d3.maxIndex(cs), li=el('li'); li.dataset.po=po;
+    const cs=catSums(rows.filter(r=>r.po===po)), ci=d3.maxIndex(cs), li=el('div'); li.dataset.po=po;
     li.append(el('span','h-name',PORTS[po].name), el('span','h-val',gbpS(v)));
     const bar=el('span','h-bar'); cs.forEach((x,i)=>{ if(x>0){ const s=el('i'); s.style.flex=String(x); s.style.background=ccol(i); bar.append(s);} }); bar.setAttribute('aria-hidden','true');
     const lead=el('span','h-lead'); const sw=el('span','sw'); sw.style.background=ccol(ci); lead.append(sw, document.createTextNode(state.cat>=0? `${pct(v,sum(rows))} of the category` : `${CATS[ci].label}, ${pct(cs[ci],v)}`));
@@ -271,7 +290,7 @@ function harbourList(onChange){
   sec.append(ol); return sec;
 }
 function syncHarbourList(host){ const k=active(), s=parseKey(k), lk=parseKey(state.lock);
-  host.querySelectorAll('.harb li').forEach(li=>{ const po=+li.dataset.po; li.classList.toggle('is-active', !!s && s.type!=='place' && s.po===po); li.classList.toggle('is-pinned', !!lk && lk.type==='port' && lk.po===po); }); }
+  host.querySelectorAll('.harb > div').forEach(li=>{ const po=+li.dataset.po; li.classList.toggle('is-active', !!s && s.type!=='place' && s.po===po); li.classList.toggle('is-pinned', !!lk && lk.type==='port' && lk.po===po); }); }
 function renderMargin(id,o){
   const host=document.getElementById(id); let selBox=host.querySelector('.m-sel'), comm=host.querySelector('.commentary');
   const fresh=marginSelection(host,o);
@@ -296,9 +315,12 @@ function renderControls(){
 }
 function renderPinned(){
   const host=document.getElementById('pinned'); host.replaceChildren();
-  if(state.search){ const s=el('span','gfilter'); s.append(document.createTextNode('Goods: '), el('strong',null,state.search.label)); const b=el('button','textbtn','Clear'); b.type='button'; b.addEventListener('click',()=>setGoods(null)); s.append(document.createTextNode(' '), b); host.append(s); }
+  const chip=(name,val,what,onClear)=>{ const s=el('span','gfilter'); s.append(document.createTextNode(name+': '), el('strong',null,val)); const b=el('button','textbtn','Clear'); b.type='button'; b.setAttribute('aria-label','Clear the '+what); b.addEventListener('click',onClear); s.append(document.createTextNode(' '), b); host.append(s); };
+  if(state.search) chip('Goods',state.search.label,'goods filter',()=>setGoods(null));
+  if(state.cat>=0) chip('Category',CATS[state.cat].label,'category filter',()=>{ state.cat=-1; renderAll(); });
   if(state.lock){ host.append(document.createTextNode('Pinned: '), el('strong',null,keyLabel(state.lock))); const b=el('button','textbtn','Unpin'); b.type='button'; b.addEventListener('click',()=>{ state.lock=null; renderPinned(); updateView(); renderEntries(); }); host.append(b); }
-  else host.append(document.createTextNode(state.view==='sunburst'? 'Click an arc to zoom into it.' : 'Hover a place, harbour or route to read it in the margin; click to pin it.'));
+  else host.append(document.createTextNode(state.view==='sunburst'? `${TOUCH?'Tap':'Click'} an arc to zoom into it.` : TOUCH? 'Tap a place, harbour or route to pin it and read it in the margin.' : 'Hover a place, harbour or route to read it in the margin; click to pin it.'));
+  syncSearch();
 }
 const footText=()=>`Source: Prince Edward Island customs returns for ${yearLabel()}, as transcribed in the project workbook.`;
 function setFoot(id){ const f=document.getElementById(id); f.replaceChildren(document.createTextNode(footText())); f.append(sup(1)); }
@@ -329,19 +351,21 @@ function ribbon(pts,w0,w1){
 /* zoom buttons shared by both Plate A maps */
 function zoomBar(hostId,svg,zoom,f,islandBox){
   const bar=document.getElementById(hostId); bar.replaceChildren();
-  const mk=(label,fn)=>{ const b=el('button',null,label); b.type='button'; b.addEventListener('click',fn); bar.append(b); return b; };
+  const mk=(label,short,fn)=>{ const b=el('button'); b.type='button'; b.setAttribute('aria-label',label); b.append(el('span','zl',label), el('span','zs',short)); b.addEventListener('click',fn); bar.append(b); return b; };
   const dur=REDUCED?0:450;
-  mk('Zoom in',()=>svg.transition().duration(dur).call(zoom.scaleBy,1.8));
-  mk('Zoom out',()=>svg.transition().duration(dur).call(zoom.scaleBy,1/1.8));
-  if(islandBox) mk('Zoom to the Island',()=>{ const [[x0,y0],[x1,y1]]=islandBox(), fw=f.x1-f.x0, fh=f.y1-f.y0, k=Math.min(20,0.86*Math.min(fw/(x1-x0),fh/(y1-y0)));
+  mk('Zoom in','+',()=>svg.transition().duration(dur).call(zoom.scaleBy,1.8));
+  mk('Zoom out','−',()=>svg.transition().duration(dur).call(zoom.scaleBy,1/1.8));
+  if(islandBox) mk('Zoom to the Island','Island',()=>{ const [[x0,y0],[x1,y1]]=islandBox(), fw=f.x1-f.x0, fh=f.y1-f.y0, k=Math.min(20,0.86*Math.min(fw/(x1-x0),fh/(y1-y0)));
     svg.transition().duration(REDUCED?0:700).call(zoom.transform,d3.zoomIdentity.translate((f.x0+f.x1)/2,(f.y0+f.y1)/2).scale(k).translate(-(x0+x1)/2,-(y0+y1)/2)); });
-  mk('Reset view',()=>svg.transition().duration(dur).call(zoom.transform,d3.zoomIdentity));
+  mk('Reset view','Reset',()=>svg.transition().duration(dur).call(zoom.transform,d3.zoomIdentity));
 }
 function makeZoom(svg,f,onZoom,onEnd){
+  let raf=0, pend=null;   // coalesce wheel and gesture events into one redraw per frame
   const z=d3.zoom().scaleExtent([1,24]).extent([[f.x0,f.y0],[f.x1,f.y1]]).translateExtent([[f.x0,f.y0],[f.x1,f.y1]])
-    .filter(e=>e.type==='wheel'? (e.ctrlKey||e.metaKey) : (!e.ctrlKey && !e.button))
+    .filter(e=>e.type==='wheel'? (e.ctrlKey||e.metaKey) : e.type.startsWith('touch')? e.touches.length>1 : (!e.ctrlKey && !e.button))
     .wheelDelta(e=>-e.deltaY*(e.deltaMode===1?0.05:e.deltaMode?1:0.002)*(e.ctrlKey&&Math.abs(e.deltaY)<40?5:1))
-    .on('zoom',e=>{ hideTip(); onZoom(e.transform,false); }).on('end',e=>onEnd(e.transform));
+    .on('zoom',e=>{ hideTip(); pend=e.transform; if(!raf) raf=requestAnimationFrame(()=>{ raf=0; onZoom(pend,false); }); })
+    .on('end',e=>{ if(raf){ cancelAnimationFrame(raf); raf=0; } onEnd(e.transform); });
   svg.call(z).style('touch-action','pan-y');
   return z;
 }
@@ -357,8 +381,8 @@ function renderA(){
   const base0=d3.geoConicConformal().parallels([43,49]).rotate([61.5,0]).fitExtent([[f.x0+6,f.y0+6],[f.x1-6,f.y1-6]],ext);
   const s0=base0.scale(), t0=base0.translate();
   const projAt=t=>d3.geoConicConformal().parallels([43,49]).rotate([61.5,0]).scale(s0*t.k).translate([t0[0]*t.k+t.x,t0[1]*t.k+t.y]);
-  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','img')
-    .attr('aria-label',`Map of ${dirL()} between Prince Edward Island harbours and their ${placeWord()}s, with modelled sea routes. Zoomable.`);
+  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','group')
+    .attr('aria-label',`Map of ${dirL()} between Prince Edward Island harbours and their ${placeWord()}s, with modelled sea routes. Zoomable. Arrow keys move between routes, harbours and places.`);
   svg.append('clipPath').attr('id','clipA').append('rect').attr('x',f.x0).attr('y',f.y0).attr('width',f.x1-f.x0).attr('height',f.y1-f.y0);
   const g=svg.append('g').attr('clip-path','url(#clipA)');
   g.append('rect').attr('x',f.x0).attr('y',f.y0).attr('width',f.x1-f.x0).attr('height',f.y1-f.y0).style('fill','var(--sea)');
@@ -380,8 +404,10 @@ function renderA(){
   // harbours on the regional map: dots, names once zoomed in
   const pl0=PORTS.map((p,i)=>i).filter(i=>poTot.get(i)&&portOK(i));
   A.hG=g.append('g').selectAll('g').data(pl0).join('g');
-  A.hG.append('circle').attr('r',2).style('fill','var(--ink)').style('stroke','var(--sea)').style('stroke-width',1);
-  A.hG.append('text').attr('class','halo').append('tspan').attr('class','lbl').style('font-size','12px').text(i=>PORTS[i].name);
+  const poLead=new Map(d3.rollups(rows.filter(r=>portOK(r.po)),v=>d3.maxIndex(catSums(v)),r=>r.po));   // leading category at each harbour, shown at Island zoom
+  A.hG.append('circle').attr('class','hdot').attr('r',2).style('fill','var(--ink)').style('stroke','var(--sea)').style('stroke-width',1);
+  A.hG.append('text').attr('class','halo').each(function(i){ const t=d3.select(this); t.append('tspan').attr('class','lbl').style('font-size','12px').text(PORTS[i].name);
+    if(poLead.has(i)) t.append('tspan').attr('class','lbl-v').attr('dy','1.2em').text(shortCat(poLead.get(i))); });
   A.hG.append('circle').attr('class','node-hit').attr('r',7);
   bindNode(A.hG.select('.node-hit'),i=>`po:${i}`,(t,i)=>tipBreakdown(t,PORTS[i].name,rows.filter(r=>r.po===i)),i=>`${PORTS[i].name}, ${gbp(poTot.get(i)||0)}`,updateA);
   // places
@@ -395,7 +421,7 @@ function renderA(){
     .style('fill','none').style('stroke','var(--ink)').style('stroke-width',1.3).style('stroke-linecap','round').style('stroke-linejoin','round');
   A.placeG.each(function(d){ const vc=plCur.get(d.i)||0, t=d3.select(this).append('text').attr('class','halo');
     t.append('tspan').attr('class','lbl-c').text(PLACES[d.i].name);
-    if(!narrow) t.append('tspan').attr('class','lbl-v').attr('dy','1.25em').text(`${vc?gbpS(vc):'–'}${d.off? ', '+kmLabel(d.i)+' away':''}`); });
+    if(!narrow) t.append('tspan').attr('class','lbl-v').attr('dy','1.25em').text(`${vc?gbpS(vc):'none recorded'}${d.off? ', '+kmLabel(d.i)+' away':''}`); });
   A.placeG.append('circle').attr('class','node-hit').attr('r',d=>Math.max(13,A.r(plTot.get(d.i))+4));
   bindNode(A.placeG.select('.node-hit'),d=>`pl:${d.i}`,(t,d)=>tipBreakdown(t,PLACES[d.i].name,rows.filter(r=>r.pl===d.i),`drawn at ${PLACES[d.i].rep}`),d=>`${PLACES[d.i].name}, ${gbp(plTot.get(d.i)||0)}`,updateA);
   // furniture outside the clip
@@ -409,6 +435,7 @@ function renderA(){
     A.flows.each(function(d){ const pts=smoothLine(((DATA.routes[d.pl]||[])[d.po]||[[PLACES[d.pl].ax??PLACES[d.pl].lon,PLACES[d.pl].ay??PLACES[d.pl].lat],[PORTS[d.po].lon,PORTS[d.po].lat]]).map(c=>p(c))), w=Math.max(0.8,A.w(d.v)), rb=imp()? ribbon(pts,w,Math.max(0.7,w*0.45)) : ribbon(pts.slice().reverse(),w,Math.max(0.7,w*0.45)); d.rb=rb; d.pts=pts; d.wpx=w; d3.select(this).attr('d',rb.area); });
     hits.attr('d',d=>d.rb.line);
     A.hG.attr('transform',i=>`translate(${p([PORTS[i].lon,PORTS[i].lat])})`).select('text').style('display','none');
+    A.hG.select('.hdot').attr('r',t.k>=3?4.5:2).style('fill',i=>t.k>=3&&poLead.has(i)? ccol(poLead.get(i)) : 'var(--ink)');
     A.placeG.attr('transform',d=>{ const q=PLACES[d.i]; return `translate(${p(d.off?[q.ax,q.ay]:[q.lon,q.lat])})`; });
     furn.selectAll('*').remove(); graticuleLabels(furn,p,f,[-75,-70,-65,-60,-55,-50],[40,42,44,46,48,50]);
     const kms=t.k>=8?20:t.k>=3?50:(narrow?100:200); const sb=scaleBar(furn,p,f.x0+18,f.y1-16,kms);
@@ -417,8 +444,8 @@ function renderA(){
       const items=[];
       const inView=(x,y)=>x>=f.x0&&x<=f.x1&&y>=f.y0&&y<=f.y1;
       A.placeG.each(function(d,k){ const tr=this.getAttribute('transform').match(/-?[\d.]+/g).map(Number);
-        items.push({g:d3.select(this).select('text'),x:tr[0],y:tr[1],hide:!inView(tr[0],tr[1]),must:k<3,r:A.r(plTot.get(d.i))+(d.off?12:0),pref:d.off?(tr[1]>H*0.7?'n':tr[0]>W/2?'w':'e'):(PLACES[d.i].name==='Magdalen Islands'?'ne':tr[0]<W*0.22?'s':'e')}); });
-      if(t.k>=3) A.hG.each(function(i){ const q=p([PORTS[i].lon,PORTS[i].lat]); items.push({g:d3.select(this).select('text').style('display',null),x:q[0],y:q[1],r:3,hide:!inView(q[0],q[1]),pref:PORT_LABEL[PORTS[i].name]||'e'}); });
+        items.push({g:d3.select(this).select('text'),x:tr[0],y:tr[1],hide:!inView(tr[0],tr[1]),must:k<3,r:A.r(plTot.get(d.i))+(d.off?12:0),r0:A.r(plTot.get(d.i)),lead:!!d.off,pref:d.off?(tr[1]<H*0.25?'s':'n'):(PLACES[d.i].name==='Magdalen Islands'?'ne':tr[0]<W*0.22?'s':'e')}); });
+      if(t.k>=3) A.hG.each(function(i){ const q=p([PORTS[i].lon,PORTS[i].lat]); items.push({g:d3.select(this).select('text').style('display',null),x:q[0],y:q[1],r:5,hide:!inView(q[0],q[1]),pref:PORT_LABEL[PORTS[i].name]||'e'}); });
       const placed=placeLabels(items,W,H,{x0:f.x0+5,y0:f.y0+5,x1:f.x1-5,y1:f.y1-5},{rects:[sb],circles:corr});
       gWater.each(function(d){ if(!(d[0]==='Strait of Canso'&&t.k<3)) this.style.display=null; }); yieldWater(gWater,placed.concat([sb]));
     }
@@ -428,12 +455,12 @@ function renderA(){
   svg.call(A.zoom.transform,A.zt);
   layout(A.zt,true);
   const peiF={type:'FeatureCollection',features:GEO.region.features.filter(d=>d.properties.pei)};
-  zoomBar('a-zoom',svg,A.zoom,f,()=>d3.geoPath(base0).bounds(peiF));
+  zoomBar('a-zoom',svg,A.zoom,f,()=>d3.geoPath(base0).bounds(peiF)); rove(svg.node());
 
   const cap=document.getElementById('a-cap'); cap.replaceChildren(document.createTextNode(imp()
     ? 'Lines follow a modelled sea route from each origin to the harbour where the goods were entered; line width shows value. Pie area shows value and slices show SITC category. Britain, France, Bermuda and the West Indies sit at the edge of the map, with an arrow toward them and their distance from Charlottetown. Each colony is drawn at a representative port.'
     : 'Lines follow a modelled sea route from the harbour of shipment to each destination; line width shows value. Pie area shows value and slices show SITC category. Britain, France, Bermuda and the West Indies sit at the edge of the map, with an arrow toward them and their distance from Charlottetown. Each colony is drawn at a representative port.'));
-  cap.append(sup(5), sup(9)); const un=sum(all.filter(r=>!mappable(r.pl)||!portOK(r.po))); if(un>0){ cap.append(document.createTextNode(` ${gbp(un)} with no mappable ${placeWord()} or harbour is not drawn.`)); cap.append(sup(7)); }
+  cap.append(sup(5), sup(9), document.createTextNode(' Zoom to the Island to see each harbour in the colour of its leading category.')); const un=sum(all.filter(r=>!mappable(r.pl)||!portOK(r.po))); if(un>0){ cap.append(document.createTextNode(` ${gbp(un)} with no mappable ${placeWord()} or harbour is not drawn.`)); cap.append(sup(7)); }
   const keys=document.getElementById('a-keys'); keys.replaceChildren(); circleKey(keys,`${PlaceWord()} pie area`,A.r,A.r.domain()[1]); lineKey(keys,'Line width',A.w,A.w.domain()[1]);
   renderAHarbours(all,rows,poTot);
   setFoot('a-foot'); document.getElementById('a-foot').append(document.createTextNode(' Lambert conformal conic projection, standard parallels 43° and 49° N (main map) and 46° and 47° N (inset); the rectangle on the main map marks the inset.'));
@@ -449,7 +476,7 @@ function renderAHarbours(all,rows,poTot){
   const base0=d3.geoConicConformal().parallels([46,47]).rotate([63.2,0]).fitExtent([[f.x0+16,f.y0+40],[f.x1-16,f.y1-34]],{type:'FeatureCollection',features:pei});
   const s0=base0.scale(), t0=base0.translate(), projAt=t=>d3.geoConicConformal().parallels([46,47]).rotate([63.2,0]).scale(s0*t.k).translate([t0[0]*t.k+t.x,t0[1]*t.k+t.y]);
   A.rp=d3.scaleSqrt().domain([0,d3.max(poTot.values())||1]).range([0,Math.max(14,Math.min(30,W*0.034))]);
-  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','img').attr('aria-label','Prince Edward Island harbours, with pies of trade by SITC category. Zoomable.');
+  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','group').attr('aria-label','Prince Edward Island harbours, with pies of trade by SITC category. Zoomable. Arrow keys move between harbours.');
   svg.append('clipPath').attr('id','clipAP').append('rect').attr('x',f.x0).attr('y',f.y0).attr('width',f.x1-f.x0).attr('height',f.y1-f.y0);
   const g=svg.append('g').attr('clip-path','url(#clipAP)');
   g.append('rect').attr('x',f.x0).attr('y',f.y0).attr('width',f.x1-f.x0).attr('height',f.y1-f.y0).style('fill','var(--sea)');
@@ -462,7 +489,7 @@ function renderAHarbours(all,rows,poTot){
   A.portG.append('g').attr('class','pie');
   A.portG.append('text').attr('class','halo po-l');
   A.portG.append('circle').attr('class','node-hit').attr('r',d=>Math.max(12,A.rp(poTot.get(d.i))+3));
-  A.portG.each(function(d){ const lt=d3.select(this).select('.po-l'); lt.append('tspan').attr('class','lbl').text(PORTS[d.i].name); if(W>=560) lt.append('tspan').attr('class','lbl-v po-v').attr('dy','1.2em').text(gbpS(poTot.get(d.i))); });
+  A.portG.each(function(d){ const lt=d3.select(this).select('.po-l'); lt.append('tspan').attr('class','lbl').text(PORTS[d.i].name); if(W>=560) lt.append('tspan').attr('class','lbl-v po-v').attr('dy','1.2em').text(gbpS(poTot.get(d.i)));  });
   bindNode(A.portG.select('.node-hit'),d=>`po:${d.i}`,(t,d)=>tipBreakdown(t,PORTS[d.i].name,rows.filter(r=>r.po===d.i)),d=>`${PORTS[d.i].name}, ${gbp(poTot.get(d.i)||0)}`,updateA);
   svg.append('text').attr('x',f.x0+12).attr('y',f.y0+24).style('font-family','var(--narrow)').style('font-weight',600).style('font-size','16px').text(imp()?'Inset: harbours of entry':'Inset: harbours of shipment');
   neatline(svg,f); const furn=svg.append('g');
@@ -480,8 +507,8 @@ function renderAHarbours(all,rows,poTot){
   A.zoomP=makeZoom(svg,f,(t)=>{ A.zp=t; layout(t,false); },t=>{ A.zp=t; layout(t,true); });
   svg.call(A.zoomP.transform,A.zp); layout(A.zp,true);
   { const i0=base0.invert([f.x0,f.y0]), i1=base0.invert([f.x1,f.y1]); A.insetBox=[i0[0],i0[1],i1[0],i1[1]]; if(A.layoutRegion) A.layoutRegion(A.zt,true); }
-  zoomBar('a-pzoom',svg,A.zoomP,f,null);
-  const pcap=document.getElementById('a-pcap'); pcap.replaceChildren(document.createTextNode('Pie area shows each harbour’s value; slices show SITC category. Hover a place or route on the main map to see only its goods here.')); pcap.append(sup(6));
+  zoomBar('a-pzoom',svg,A.zoomP,f,null); rove(svg.node());
+  const pcap=document.getElementById('a-pcap'); pcap.replaceChildren(document.createTextNode(`Pie area shows each harbour’s value and slices show SITC category; the smallest harbours are a single dot in the colour of their leading category, which the harbour list ${W<980?'below':'beside the map'} names for every harbour. ${TOUCH?'Tap':'Hover'} a place or route on the main map to see only its goods here.`)); pcap.append(sup(6));
   const pk=document.getElementById('a-pkeys'); pk.replaceChildren(); circleKey(pk,'Harbour pie area',A.rp,A.rp.domain()[1]);
 }
 function updateA(){
@@ -492,7 +519,7 @@ function updateA(){
     drawPie(d3.select(this).select('.pie'),sums,A.r(d3.sum(sums)));
     const dim=s&&((s.type!=='port'&&s.pl!==d.i)||(s.type==='port'&&d3.sum(sums)===0)); d3.select(this).style('opacity',dim?0.25:1); });
   if(A.portG) A.portG.each(function(d){ const sub=s&&s.type!=='port'? rows.filter(r=>r.po===d.i&&keyMatch(k,r)) : rows.filter(r=>r.po===d.i); const sums=catSums(sub), v=d3.sum(sums), gg=d3.select(this);
-    drawPie(gg.select('.pie'),sums,A.rp(v)); gg.select('.po-v').text(v>0?gbpS(v):'–');
+    drawPie(gg.select('.pie'),sums,A.rp(v)); gg.select('.po-v').text(v>0?gbpS(v):'none');
     const dim=s&&((s.type!=='place'&&s.po!==d.i)||(s.type==='place'&&v===0)); gg.style('opacity',dim?0.25:1); });
   renderMargin('a-margin',{pie:false,harbours:true,onChange:updateA});
 }
@@ -507,7 +534,7 @@ function renderB(){
   const W=Math.max(320,host.clientWidth||860), narrow=W<560, lm=narrow?74:178, R=Math.min((W-2*lm)/2,320), H=Math.round(2*R+(narrow?120:130)), cx=W/2, cy=H/2;
   const all=base(), rows=cur(), pei=GEO.pei.features.filter(d=>d.properties.pei);
   const proj=d3.geoConicConformal().parallels([46,47]).rotate([63.2,0]).fitExtent([[cx-R*0.8,cy-R*0.46],[cx+R*0.8,cy+R*0.46]],{type:'FeatureCollection',features:pei});
-  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','img').attr('aria-label',`Compass diagram of ${dirL()}: ${placeWord()}s arranged around Prince Edward Island by bearing`);
+  const svg=d3.select(host).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width',W).attr('height',H).attr('role','group').attr('aria-label',`Compass diagram of ${dirL()}: ${placeWord()}s arranged around Prince Edward Island by bearing. Arrow keys move between routes, harbours and places.`);
   svg.append('rect').attr('width',W).attr('height',H).style('fill','var(--sea)');
   const ring=svg.append('g');
   ring.append('circle').attr('cx',cx).attr('cy',cy).attr('r',R).style('fill','none').style('stroke','var(--ink)').style('stroke-width',1);
@@ -549,7 +576,7 @@ function renderB(){
     if(narrow&&nm.length>12&&nm.includes(' ')){ const ws=nm.split(' '); let best=1, bd=1e9; for(let k=1;k<ws.length;k++){ const a=ws.slice(0,k).join(' ').length, b=ws.slice(k).join(' ').length; if(Math.abs(a-b)<bd){ bd=Math.abs(a-b); best=k; } }
       t.append('tspan').attr('class','lbl-c').text(ws.slice(0,best).join(' ')); t.append('tspan').attr('class','lbl-c').attr('dy','1.1em').text(ws.slice(best).join(' ')); }
     else t.append('tspan').attr('class','lbl-c').text(nm);
-    if(!narrow) t.append('tspan').attr('class','lbl-v').attr('dy','1.25em').text(`${vc?gbpS(vc):'–'}, ${kmLabel(d.i)}`);
+    if(!narrow) t.append('tspan').attr('class','lbl-v').attr('dy','1.25em').text(`${vc?gbpS(vc):'none recorded'}, ${kmLabel(d.i)}`);
     if(narrow) t.selectAll('tspan').style('font-size','12px'); });
   const nodeCircles=nodes.map(d=>({x:d.x,y:d.y,r:rOf(d)+3})), portCircles=plist.map(i=>({x:portXY[i][0],y:portXY[i][1],r:Math.max(3,B.rPo(poTot.get(i)))+2}));
   const ringItems=nodes.slice().sort((a,b)=>(plTot.get(b.i)||0)-(plTot.get(a.i)||0)).map(d=>{ const s=Math.sin(d.t), c=-Math.cos(d.t);
@@ -558,6 +585,7 @@ function renderB(){
   placeLabels(B.harbourLabelItems,W,H,null,{rects:ringBoxes,circles:nodeCircles.concat(portCircles)});
   B.nodeG.append('circle').attr('class','node-hit').attr('r',d=>Math.max(13,rOf(d)+4));
   bindNode(B.nodeG.select('.node-hit'),d=>`pl:${d.i}`,(t,d)=>tipBreakdown(t,PLACES[d.i].name,rows.filter(r=>r.pl===d.i),`drawn at ${PLACES[d.i].rep}`),d=>`${PLACES[d.i].name}, ${gbp(plTot.get(d.i)||0)}`,updateB);
+  rove(svg.node());
   const cap=document.getElementById('b-cap'); cap.replaceChildren(document.createTextNode(`Each ${placeWord()} sits on the ring at its compass bearing from Charlottetown; direction is kept and distance is printed instead. Line width shows value. The margin pie shows whatever you hover or pin.`)); cap.append(sup(8));
   const keys=document.getElementById('b-keys'); keys.replaceChildren(); lineKey(keys,'Line width',B.w,B.w.domain()[1]); circleKey(keys,`${PlaceWord()} circle area`,B.rPl,B.rPl.domain()[1]); circleKey(keys,'Harbour circle area',B.rPo,B.rPo.domain()[1]);
   setFoot('b-foot');
@@ -582,7 +610,7 @@ const sitcName=c=>(DATA.sitc&&DATA.sitc[c])||'';
 function hierSpec(){
   // keys read entry records: [d,y,place,harbour,cat,code,...,value@12,...,article@16,division@17]
   const pl={key:e=>'p'+e[2],name:k=>PLACES[+k.slice(1)].name,kind:'place'}, po={key:e=>'h'+e[3],name:k=>PORTS[+k.slice(1)].name,kind:'port'};
-  const ca={key:e=>'c'+e[4],name:k=>CATS[+k.slice(1)].label,short:k=>CATS[+k.slice(1)].label,kind:'cat'};
+  const ca={key:e=>'c'+e[4],name:k=>CATS[+k.slice(1)].label,short:k=>shortCat(+k.slice(1)),kind:'cat'};
   const dv={key:e=>'d'+e[17],name:k=>{ const c=k.slice(1); return /^\d\d$/.test(c)? `${c} ${divInfo(c).name}` : divInfo(c).name; },short:k=>divName(k.slice(1)),kind:'div'};
   const tier=(n,p,kind)=>({key:e=>{ const c=e[5]; return c&&c.length>=n? p+c.slice(0,n) : p+'~'; },name:k=>k.endsWith('~')? 'No finer code' : `${k.slice(1)} ${sitcName(k.slice(1))}`,kind});
   const g3=tier(3,'g','g3'), g4=tier(4,'s','g4');
@@ -598,13 +626,13 @@ function renderSunburst(){
   const host=document.getElementById('c-chart'); host.replaceChildren();
   const rows=DATA.entries.filter(e=>entryMatch(e,state.lock)), size=Math.max(300,Math.min(host.clientWidth||620,700)), radius=size/8.1;
   const nested=d3.rollup(rows,v=>d3.sum(v,e=>e[12]),...spec.map(s=>s.key));
-  const root=d3.hierarchy([state.lock? `Pinned: ${keyLabel(state.lock)}` : `All ${dirL()}`,nested],([,v])=>v instanceof Map?Array.from(v):null).sum(([,v])=>typeof v==='number'?v:0);
+  const root=d3.hierarchy([state.lock? `Pinned: ${keyLabel(state.lock)}` : scopeTitle(),nested],([,v])=>v instanceof Map?Array.from(v):null).sum(([,v])=>typeof v==='number'?v:0);
   root.each(n=>{ n.kind=n.depth===0?'root':spec[n.depth-1].kind; n.label=n.depth===0?n.data[0]:spec[n.depth-1].name(n.data[0]); n.ring=n.depth&&spec[n.depth-1].short? spec[n.depth-1].short(n.data[0]) : n.label; n.catIdx=n.kind==='cat'?+n.data[0].slice(1):(n.parent&&n.parent.catIdx!=null?n.parent.catIdx:null); n.catDepth=n.kind==='cat'?n.depth:(n.parent?n.parent.catDepth:null); });
   root.sort((a,b)=>(a.kind==='cat'&&b.kind==='cat')?a.catIdx-b.catIdx:b.value-a.value);
   d3.partition().size([2*Math.PI,root.height+1])(root); root.each(d=>d.current=d);
   C.root=root; C.focus=root;
   const arc=d3.arc().startAngle(d=>d.x0).endAngle(d=>d.x1).padAngle(d=>Math.min((d.x1-d.x0)/2,0.006)).padRadius(radius*1.5).innerRadius(d=>d.y0*radius).outerRadius(d=>Math.max(d.y0*radius,d.y1*radius-1.5));
-  const svg=d3.select(host).append('svg').attr('viewBox',[-size/2,-size/2,size,size]).attr('width',size).attr('height',size).style('margin','0 auto').attr('role','img').attr('aria-label',`Sunburst of ${dirL()} by ${spec.map(s=>s.kind).join(', ')}`);
+  const svg=d3.select(host).append('svg').attr('viewBox',[-size/2,-size/2,size,size]).attr('width',size).attr('height',size).style('margin','0 auto').attr('role','group').attr('aria-label',`Sunburst of ${dirL()} by ${spec.map(s=>s.kind).join(', ')}. Arrow keys move between arcs; Enter zooms in and Escape zooms out.`);
   const fill=d=>d.catIdx!=null?ccol(d.catIdx):(d.depth===1?'var(--land-pei)':'var(--land)');
   const fop=d=>d.kind==='cat'?1:d.catIdx!=null?([0,0.55,0.42,0.32][d.depth-d.catDepth]||0.24):1;
   const txt=d=>d.kind==='cat'?oncol(d.catIdx):'var(--ink)';
@@ -613,9 +641,9 @@ function renderSunburst(){
   const g=svg.append('g');
   const paths=g.append('g').selectAll('path').data(root.descendants().slice(1)).join('path').style('fill',fill).style('fill-opacity',fop).attr('d',d=>arc(d.current))
     .attr('pointer-events',d=>vis(d.current)?'auto':'none').style('opacity',d=>vis(d.current)?1:0).style('cursor',d=>d.children?'pointer':'default')
-    .attr('tabindex',d=>vis(d.current)?0:-1).attr('role','button').attr('aria-label',d=>`${chainLabel(d)}: ${gbp(d.value)}`);
+    .attr('tabindex',-1).attr('role','button').attr('aria-label',d=>`${chainLabel(d)}: ${gbp(d.value)}`);
   paths.on('pointerenter pointermove',(e,d)=>showTip(e,t=>sunTip(t,d))).on('pointerleave blur',hideTip).on('focus',(e,d)=>showTip(e,t=>sunTip(t,d)))
-    .on('click',(e,d)=>{ if(d.children) zoom(d); }).on('keydown',(e,d)=>{ if((e.key==='Enter'||e.key===' ')&&d.children){ e.preventDefault(); zoom(d);} if(e.key==='Escape') zoom(C.focus.parent||root); });
+    .on('click',(e,d)=>{ if(d.children) zoom(d); }).on('keydown',(e,d)=>{ if((e.key==='Enter'||e.key===' ')&&d.children){ e.preventDefault(); zoom(d);} if(e.key==='Escape') zoomOut(); });
   const mctx=document.createElement('canvas').getContext('2d'), avail=radius-8, fam=getComputedStyle(document.body).fontFamily;
   const fit=d=>{ const L=d.ring; for(const sz of [11.5,11,10.5]){ mctx.font=`${d.kind==='cat'?600:500} ${sz}px ${fam}`; if(mctx.measureText(L).width<=avail) return {sz,txt:L}; }
     let s=L; mctx.font=`${d.kind==='cat'?600:500} 10.5px ${fam}`; while(s.length>2&&mctx.measureText(s+'…').width>avail) s=s.slice(0,-1); return {sz:10.5,txt:s.trimEnd()+'…'}; };
@@ -623,11 +651,14 @@ function renderSunburst(){
     .each(function(d){ const r=fit(d); d3.select(this).style('font-size',r.sz+'px').text(r.txt); })
     .style('font-weight',d=>d.kind==='cat'?600:500).style('fill',txt).style('opacity',d=>+labVis(d.current)).attr('transform',d=>labT(d.current));
   const center=g.append('g');
-  center.append('circle').attr('r',radius-2).style('fill','var(--paper)').style('stroke','var(--hair)').style('cursor','pointer').attr('tabindex',0).attr('role','button').attr('aria-label','Zoom out')
-    .on('click',()=>zoom(C.focus.parent||root)).on('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoom(C.focus.parent||root);} });
+  center.append('circle').attr('r',radius-2).style('fill','var(--paper)').style('stroke','var(--hair)').style('cursor','pointer').attr('tabindex',-1).attr('role','button').attr('aria-label','Zoom out')
+    .on('click',()=>zoom(C.focus.parent||root)).on('keydown',e=>{ if(e.key==='Enter'||e.key===' '||e.key==='Escape'){ e.preventDefault(); zoomOut(); } });
+  function zoomOut(){ const from=C.focus; if(from===root) return; zoom(from.parent||root); const n=paths.filter(x=>x===from).node(); if(n) n.focus(); }   // keyboard: land on the arc you came out of
   const ct=center.append('text').attr('text-anchor','middle').attr('pointer-events','none');
-  function setCenter(p){ ct.selectAll('*').remove(); const nm=p.label.length>18?p.label.slice(0,17)+'…':p.label;
-    ct.append('tspan').attr('x',0).attr('dy','-0.45em').style('font-size','12.5px').style('fill','var(--ink-2)').text(nm);
+  function setCenter(p){ ct.selectAll('*').remove();
+    const lines=['']; p.label.split(' ').forEach(w=>{ const L=lines[lines.length-1]; if(L&&(L+' '+w).length>21) lines.push(w); else lines[lines.length-1]=(L+' '+w).trim(); });   // wrap, two lines at most
+    const two=lines.slice(0,2); if(lines.length>2) two[1]=two[1].replace(/\W*$/,'')+'…';
+    two.forEach((ln,i)=>ct.append('tspan').attr('x',0).attr('dy',i? '1.2em' : two.length>1? '-1.2em' : '-0.45em').style('font-size','12.5px').style('fill','var(--ink-2)').text(ln));
     ct.append('tspan').attr('x',0).attr('dy','1.35em').style('font-size','19px').style('font-weight',600).text(gbpS(p.value));
     if(p!==root) ct.append('tspan').attr('x',0).attr('dy','1.45em').style('font-size','11px').style('fill','var(--muted)').text('zoom out'); }
   function zoom(p,instant){ if(!p) return; C.focus=p; setCenter(p); renderCMargin(); EV.shown=100; renderEntries(); renderJump();
@@ -635,8 +666,11 @@ function renderSunburst(){
     const t=svg.transition().duration(REDUCED||instant?0:600).ease(d3.easeCubicOut);
     paths.transition(t).tween('data',d=>{ const i=d3.interpolate(d.current,d.target); return tt=>d.current=i(tt); })
       .filter(function(d){ return +this.style.opacity||vis(d.target); }).style('opacity',d=>vis(d.target)?1:0).attr('pointer-events',d=>vis(d.target)?'auto':'none').attrTween('d',d=>()=>arc(d.current));
-    paths.attr('tabindex',d=>vis(d.target)?0:-1);
+    if(svg.node().__rove) svg.node().__rove();
     labels.filter(function(d){ return +this.style.opacity||labVis(d.target); }).transition(t).style('opacity',d=>+labVis(d.target)).attrTween('transform',d=>()=>labT(d.current)); }
+  const pos=n=>{ const d=d3.select(n).datum(); return d&&(d.target||d.current); };
+  // arcs squeezed to zero width by the zoom are not stops; inner ring first, then clockwise; the centre (zoom out) last
+  rove(svg.node(),n=>{ if(n.tagName==='circle') return true; const t=pos(n); return vis(t)&&t.x1-t.x0>1e-6; },(a,b)=>{ const p=pos(a), q=pos(b); if(!p||!q) return p? -1 : q? 1 : 0; return p.y0-q.y0||p.x0-q.x0; });
   C.zoom=zoom; setCenter(root); renderCMargin(); setFoot('c-foot');
   let target=root; for(const key of prevPath){ const nx=(target.children||[]).find(c=>c.data[0]===key); if(!nx) break; target=nx; }
   if(target!==root) zoom(target,true);
@@ -647,7 +681,7 @@ function sunTip(t,d){
   t.append(el('div','t-val',gbp(d.value)), el('div','t-name',chainLabel(d)), el('div','t-sub',lsd(d.value)));
   const g=el('div','t-rows'); g.style.gridTemplateColumns='minmax(0,1fr) auto';
   if(d.parent&&d.parent.depth>0) g.append(el('span',null,`Share of ${d.parent.label}`), el('span','r',pct(d.value,d.parent.value)));
-  g.append(el('span',null,state.lock? `Share of ${keyLabel(state.lock)}’s ${dirL()}` : `Share of all ${dirL()}`), el('span','r',pct(d.value,C.root.value))); t.append(g);
+  g.append(el('span',null,state.lock? `Share of ${keyLabel(state.lock)}’s ${scopeNoun()}` : `Share of ${scopeAll()}`), el('span','r',pct(d.value,C.root.value))); t.append(g);
   if(d.children) t.append(el('div','t-note',`Click to zoom into its ${d.children.length} ${KINDS[d.children[0].kind]||placeWord()+'s'}.`));
 }
 function sunMatch(node,e){ const spec=hierSpec(); return node.ancestors().every(a=>a.depth===0||spec[a.depth-1].key(e)===a.data[0]); }
@@ -657,17 +691,17 @@ function renderCMargin(){
   if(chain.length>1){ const cr=el('nav','crumbs'); cr.setAttribute('aria-label','Zoom path'); chain.forEach((a,i)=>{ if(i) cr.append(el('span',null,'/')); if(a===p) cr.append(el('span',null,a.label)); else { const b=el('button',null,a.label); b.type='button'; b.addEventListener('click',()=>C.zoom(a)); cr.append(b);} }); host.append(cr); }
   const sec=el('section','m-sel'); const nC=entriesNow().length;
   const ml=el('div','mlinks'); { const b=el('button','textbtn',`Check the ${fInt(nC)} source ${nC===1?'entry':'entries'} (Appendix B)`); b.type='button'; b.addEventListener('click',openEntries); ml.append(b); } { const b=el('button','textbtn','See the values table (Appendix A)'); b.type='button'; b.addEventListener('click',()=>openAppendix('tableview')); ml.append(b); }
-  sec.append(el('h3',null,p.label), el('p','m-fig',gbp(p.value)), el('p','m-sub',`${lsd(p.value)}, ${pct(p.value,root.value)} of ${state.lock? keyLabel(state.lock)+'’s '+dirL() : 'all '+dirL()}. Returns for ${yearLabel()}.`), ml); host.append(sec);
+  sec.append(el('h3',null,p.label), el('p','m-fig',gbp(p.value)), el('p','m-sub',`${lsd(p.value)}, ${pct(p.value,root.value)} of ${state.lock? keyLabel(state.lock)+'’s '+scopeNoun() : scopeAll()}. Returns for ${yearLabel()}.`), ml); host.append(sec);
   const kids=(p.children||[]).slice().sort((a,b)=>b.value-a.value);
   if(kids.length){ const kn={cat:'By SITC category',div:'By SITC division (tier two)',g3:'By SITC group (tier three)',g4:'By SITC subgroup (tier four)',port:'By harbour',place:'By '+placeWord()}[kids[0].kind]; const h=el('h4',null,kn); if(kids[0].kind==='cat') h.append(sup(3)); host.append(h);
-    const ul=el('ul','key'); const mx=kids[0].value||1;
-    kids.forEach(k=>{ const li=el('li',k.children?'on':''); const nm=el('span','k-name'), sw=el('span','sw'); sw.style.background=k.catIdx!=null?ccol(k.catIdx):'var(--node)'; if(k.kind!=='cat'&&k.catIdx!=null) sw.style.opacity=k.depth-k.catDepth===1?.55:.35;
+    const ul=el('div','key'); ul.setAttribute('role','group'); ul.setAttribute('aria-label',kn); const mx=kids[0].value||1;
+    kids.forEach(k=>{ const li=el('div',k.children?'on':''); const nm=el('span','k-name'), sw=el('span','sw'); sw.style.background=k.catIdx!=null?ccol(k.catIdx):'var(--node)'; if(k.kind!=='cat'&&k.catIdx!=null) sw.style.opacity=k.depth-k.catDepth===1?.55:.35;
       nm.append(sw, el('span',null,k.label)); const bar=el('span','k-bar'), fi=el('i'); fi.style.width=(k.value/mx*100)+'%'; fi.style.background=k.catIdx!=null?ccol(k.catIdx):'var(--node)'; bar.append(fi);
       li.append(nm, el('span','k-val',gbpS(k.value)), el('span','k-pct',pct(k.value,p.value)), bar);
       if(k.children){ li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-label',`Zoom into ${k.label}, ${gbp(k.value)}`); li.addEventListener('click',()=>C.zoom(k)); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); C.zoom(k);} }); }
       ul.append(li); });
     host.append(ul); }
-  const top=d3.rollups(DATA.entries.filter(e=>entryMatch(e,state.lock)&&sunMatch(p,e)),v=>d3.sum(v,e=>e[12]),e=>e[16]).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([a])=>DATA.arts[a]); if(top.length) host.append(el('p','m-note','Largest entries in the returns: '+top.join(', ')+'.'));
+  const top=d3.rollups(DATA.entries.filter(e=>entryMatch(e,state.lock)&&sunMatch(p,e)),v=>d3.sum(v,e=>e[12]),e=>e[16]).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([a])=>DATA.arts[a]); if(top.length) host.append(el('p','m-note','Largest entries in the returns: '+top.join('; ')+'.'));
 }
 
 /* ---------- appendix table ---------- */
@@ -688,6 +722,11 @@ function renderTable(){
 const EV={sort:'value', shown:100};
 const sunFocus=()=>state.view==='sunburst'&&C.focus&&C.focus.depth>0? C.focus : null;
 function entriesNow(){ const f=sunFocus(); return DATA.entries.filter(e=>entryMatch(e,state.lock)&&(!f||sunMatch(f,e))); }
+/* "6055 12 6" as printed in the returns -> "£6,055 12s 6d"; anything else is shown as transcribed */
+function asPrinted(raw){ if(!raw) return '–'; const t=String(raw).replace(/[£,]/g,'').trim();
+  const m=t.match(/^(\d+)(?:\s+(\d+))?(?:\s+(\d+))?\s*(½|¼|¾|1\/2|1\/4|3\/4)?$/); if(!m) return String(raw);
+  const fr={'½':'½','1/2':'½','¼':'¼','1/4':'¼','¾':'¾','3/4':'¾'}[m[4]]||'';
+  return '£'+fInt(+m[1])+(m[2]!=null||m[3]!=null||fr? ` ${m[2]||0}s ${m[3]||0}${fr}d` : ''); }
 function srcCell(e){ const td=el('td','src'); if(e[14]){ const a=el('a',null,'p. '+e[14].split('/')[1]); a.href='https://www.canadiana.ca/view/'+e[14]; a.target='_blank'; a.rel='noopener'; a.title='Canadiana '+e[14].split('/')[0]; td.append(a); } else td.textContent= e[13]? 'p. '+e[13] : '–'; return td; }
 function renderEntries(){
   renderTable();
@@ -697,11 +736,11 @@ function renderEntries(){
   const scope=[DIRS[state.dir], yearLabel(), filterNote()||null, state.lock? 'pinned: '+keyLabel(state.lock):null, f? 'Plate C: '+f.ancestors().reverse().slice(1).map(a=>a.label).join(' / '):null].filter(Boolean).join(', ');
   document.getElementById('ev-cap').textContent=`${fInt(list.length)} entries worth ${gbp(tot)} (${scope}). Values are as transcribed; “As printed” is the £ s d column of the returns, and the workbook row locates the line in the ${DIRS[state.dir]} sheet. Pin a place, harbour or route to narrow the list.`;
   const t=document.getElementById('ev'); t.replaceChildren();
-  const hr=el('tr'); ['Year','Harbour','Country, as recorded','Article, as recorded','Quantity','As printed','£ used','SITC','Source','Workbook row'].forEach((h,i)=>hr.append(el('th',(i>=1&&i<=4)||i===7||i===8?'l':null,h))); const th=el('thead'); th.append(hr); t.append(th);
+  const hr=el('tr'); ['Year','Harbour','Country, as recorded','Article, as recorded','Quantity','As printed (£ s d)','£ used','SITC','Source','Workbook row'].forEach((h,i)=>hr.append(el('th',(i>=1&&i<=4)||i===7||i===8?'l':null,h))); const th=el('thead'); th.append(hr); t.append(th);
   const tb=el('tbody');
   list.slice(0,EV.shown).forEach(e=>{ const tr=el('tr'); const fixed=Math.abs(e[11]-e[12])>0.01; if(fixed) tr.className='fixed';
     const used=el('td',null,d3.format(',.2f')(e[12])); if(fixed){ used.append(sup(2)); used.title=`The workbook’s value column reads ${e[11]}`; }
-    tr.append(el('td',null,YEARS[e[1]]), el('td','wrap',e[9]), el('td','wrap',e[8]), el('td','wrap',e[7]), el('td','wrap',e[15]||'–'), el('td',null,e[10]||'–'), used,
+    tr.append(el('td',null,YEARS[e[1]]), el('td','wrap',e[9]), el('td','wrap',e[8]), el('td','wrap',e[7]), el('td','wrap',e[15]||'–'), (()=>{ const c=el('td',null,asPrinted(e[10])); if(e[10]) c.title='As transcribed: '+e[10]; return c; })(), used,
       el('td','wrap',(e[5]||'–')+', '+CATS[e[4]].label), srcCell(e), el('td',null,fInt(e[6])));
     tb.append(tr); });
   t.append(tb);
@@ -766,9 +805,11 @@ function renderNotes(){
   else dl.append(document.createTextNode('.'));
 }
 /* ---------- goods search: combobox with grouped suggestions ---------- */
-const qIn=document.getElementById('q'), qList=document.getElementById('q-list');
+const qIn=document.getElementById('q'), qList=document.getElementById('q-list'), qClear=document.getElementById('q-clear');
+function syncSearch(){ if(document.activeElement!==qIn) qIn.value= state.search? state.search.label : state.cat>=0? CATS[state.cat].label : ''; qClear.hidden=!(qIn.value||state.search||state.cat>=0); }
+qClear.addEventListener('click',()=>{ state.search=null; state.cat=-1; state.lock=null; state.hover=null; qIn.value=''; closeQ(); renderAll(); qIn.focus(); });
 let qOpts=[], qAct=-1;
-function setGoods(g){ state.search=g; state.hover=null; state.lock=null; qIn.value=g? g.label : ''; closeQ(); renderAll(); }
+function setGoods(g){ state.search=g; state.hover=null; state.lock=null; qIn.value=g? g.label : state.cat>=0? CATS[state.cat].label : ''; closeQ(); renderAll(); }
 function closeQ(){ qList.hidden=true; qIn.setAttribute('aria-expanded','false'); qIn.removeAttribute('aria-activedescendant'); qAct=-1; }
 function markName(host,name,q){ const i=q? name.toLowerCase().indexOf(q) : -1; if(i<0){ host.append(document.createTextNode(name)); return; }
   host.append(document.createTextNode(name.slice(0,i)), el('mark',null,name.slice(i,i+q.length)), document.createTextNode(name.slice(i+q.length))); }
@@ -780,22 +821,26 @@ function suggest(){
   const divs=[...byDk].map(([k,[v,n,c]])=>({kind:'div',key:k,name:divName(k),full:divInfo(k).name,v,n,cat:c})).filter(o=>hit(o.name)||hit(o.full)).sort(rank).slice(0,q?6:0);
   const arts=[...byArt].map(([a,[v,n,c]])=>({kind:'art',ids:new Set([a]),name:DATA.arts[a],v,n,cat:c})).filter(o=>q&&hit(o.name)).sort(rank);
   qOpts=[]; const groups=[];
-  if(q&&arts.length>1){ const ids=new Set(arts.flatMap(o=>[...o.ids])); groups.push(['Search',[{kind:'text',ids,name:`All goods matching “${qIn.value.trim()}”`,label:`“${qIn.value.trim()}”`,phrase:`goods matching “${qIn.value.trim()}”`,v:d3.sum(arts,o=>o.v),n:d3.sum(arts,o=>o.n),cat:null,count:arts.length}]]); }
+  if(q&&arts.length>1){ const ids=new Set(arts.flatMap(o=>[...o.ids])), mix=d3.rollups(arts,v=>d3.sum(v,o=>o.v),o=>o.cat).sort((a,b)=>b[1]-a[1]);
+    groups.push(['Search',[{kind:'text',ids,name:`All goods matching “${qIn.value.trim()}”`,label:`“${qIn.value.trim()}”`,phrase:`goods matching “${qIn.value.trim()}”`,v:d3.sum(arts,o=>o.v),n:d3.sum(arts,o=>o.n),cat:null,mix,count:arts.length}]]); }
   if(cats.length) groups.push(['SITC categories',cats]); if(divs.length) groups.push(['SITC divisions',divs]); if(arts.length) groups.push([`Articles as recorded${arts.length>8?' (top 8 of '+arts.length+')':''}`,arts.slice(0,8)]);
   qList.replaceChildren();
   if(!groups.length){ qList.append(el('li','none',`No goods in the ${dirL()} match “${qIn.value.trim()}”.`)); }
   groups.forEach(([gname,opts])=>{ const gl=el('li','grp',gname); gl.setAttribute('role','presentation'); qList.append(gl);
     opts.forEach(o=>{ const li=el('li'); li.setAttribute('role','option'); li.id='q-opt-'+qOpts.length; li.setAttribute('aria-selected','false');
       const nm=el('span','o-name'); if(o.cat!=null){ const sw=el('span','sw'); sw.style.background=ccol(o.cat); sw.style.width='9px'; sw.style.height='9px'; nm.append(sw); }
+      else if(o.mix){ const sw=el('span','sw'), T=d3.sum(o.mix,m=>m[1])||1; let acc=0;   // stripes in proportion to the categories the matches fall under
+        sw.style.background='linear-gradient(to right,'+o.mix.map(([c,v])=>{ const a=acc/T*100; acc+=v; return `${ccol(c)} ${a.toFixed(1)}% ${(acc/T*100).toFixed(1)}%`; }).join(',')+')';
+        sw.style.width='9px'; sw.style.height='9px'; sw.title=`Across ${o.mix.length} ${o.mix.length===1?'category':'categories'}`; nm.append(sw); }
       const tx=el('span'); if(o.kind==='text') tx.append(document.createTextNode(o.name)); else markName(tx,o.name,q); nm.append(tx);
       li.append(nm, el('span','m',`${gbpS(o.v)}, ${fInt(o.n)} ${o.n===1?'entry':'entries'}${o.count?' in '+o.count+' articles':''}`));
       const idx=qOpts.length; li.addEventListener('mousedown',e=>e.preventDefault()); li.addEventListener('click',()=>pick(idx)); qOpts.push(o); qList.append(li); }); });
-  qList.hidden=false; qIn.setAttribute('aria-expanded','true'); qAct=-1;
+  qList.hidden=false; qIn.setAttribute('aria-expanded','true'); qAct=-1; qClear.hidden=!(qIn.value||state.search||state.cat>=0);
 }
 function activate(i){ const lis=qList.querySelectorAll('[role=option]'); if(!lis.length) return; qAct=(i+lis.length)%lis.length;
   lis.forEach((li,j)=>li.setAttribute('aria-selected',String(j===qAct))); qIn.setAttribute('aria-activedescendant',lis[qAct].id); lis[qAct].scrollIntoView({block:'nearest'}); }
 function pick(i){ const o=qOpts[i]; if(!o) return;
-  if(o.kind==='cat'){ state.search=null; state.cat=o.i; qIn.value=''; closeQ(); state.lock=null; renderAll(); return; }
+  if(o.kind==='cat'){ state.search=null; state.cat=o.i; qIn.value=CATS[o.i].label; closeQ(); state.lock=null; renderAll(); return; }
   if(o.kind==='div') setGoods({kind:'div',key:o.key,label:o.name,phrase:o.name.toLowerCase()});
   else if(o.kind==='art') setGoods({kind:'art',ids:o.ids,label:o.name,phrase:o.name.toLowerCase()});
   else setGoods({kind:'text',ids:o.ids,label:o.label,phrase:o.phrase}); }
@@ -804,10 +849,10 @@ qIn.addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'){ e.preventDefault(); if(qList.hidden) suggest(); activate(qAct+1); }
   else if(e.key==='ArrowUp'){ e.preventDefault(); activate(qAct-1); }
   else if(e.key==='Enter'){ e.preventDefault(); if(qAct>=0) pick(qAct); else if(qOpts.length&&qIn.value.trim()) pick(0); }
-  else if(e.key==='Escape'){ if(!qList.hidden){ e.stopPropagation(); closeQ(); } else if(state.search){ setGoods(null); } }
+  else if(e.key==='Escape'){ if(!qList.hidden){ e.stopPropagation(); closeQ(); } else if(state.search||state.cat>=0){ state.search=null; state.cat=-1; qIn.value=''; renderAll(); } }
 });
 qIn.addEventListener('search',()=>{ if(!qIn.value&&state.search) setGoods(null); });
-qIn.addEventListener('blur',()=>setTimeout(closeQ,120));
+qIn.addEventListener('blur',()=>setTimeout(()=>{ closeQ(); syncSearch(); },120));
 
 /* ---------- view switching ---------- */
 const VIEWS=['flow-map','compass','sunburst'];
@@ -823,6 +868,10 @@ function renderAll(){ hideTip(); renderControls(); renderView(); renderTable(); 
 let rw=0, rt=null;
 new ResizeObserver(()=>{ const w=document.querySelector('.atlas').clientWidth; if(Math.abs(w-rw)<8) return; rw=w; clearTimeout(rt); rt=setTimeout(renderView,120); }).observe(document.querySelector('.atlas'));
 renderNotes(); renderRecon();
+if(TOUCH) document.querySelectorAll('.zoomrow .zhint').forEach(z=>{ z.textContent='Or pinch with two fingers; drag with two fingers to pan.'; });
+const presBtn=document.getElementById('present');
+presBtn.addEventListener('click',()=>{ const on=!document.body.classList.contains('present'); document.body.classList.toggle('present',on); presBtn.setAttribute('aria-pressed',String(on));
+  presBtn.textContent=on? 'Exit presentation view' : 'Presentation view'; rw=0; renderView(); document.querySelector('.bar').scrollIntoView({block:'start'}); });
 const h0=location.hash.slice(1); setView(VIEWS.includes(h0)?h0:'flow-map',false);
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>renderView());
 }
