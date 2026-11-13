@@ -6,8 +6,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "data/**.xlsx"
-      - "data/routes.json"
+      - "Data/**.xlsx"
+      - "Data/routes.json"
       - "scripts/**"
       - ".github/workflows/build-data.yml"
   workflow_dispatch:
@@ -39,16 +39,16 @@ jobs:
         id: wb
         run: |
           shopt -s nullglob
-          files=(data/*.xlsx)
+          files=(Data/*.xlsx)
           if [ ${#files[@]} -ne 1 ]; then
-            echo "::error::Expected exactly one .xlsx in data/, found ${#files[@]}"; exit 1
+            echo "::error::Expected exactly one .xlsx in Data/, found ${#files[@]}"; exit 1
           fi
           echo "path=$(realpath "${files[0]}")" >> "$GITHUB_OUTPUT"
 
       - name: Clean the workbook and build data.json
         run: |
           mkdir -p build docs
-          cp data/routes.json build/
+          cp Data/routes.json build/
           cd build
           python ../scripts/prep.py "${{ steps.wb.outputs.path }}" rows.pkl
           python ../scripts/build_data.py "${{ steps.wb.outputs.path }}"
