@@ -41,7 +41,7 @@ jobs:
           shopt -s nullglob
           files=(Data/*.xlsx)
           if [ ${#files[@]} -ne 1 ]; then
-            echo "::error::Expected exactly one .xlsx in data/, found ${#files[@]}"; exit 1
+            echo "::error::Expected exactly one .xlsx in Data/, found ${#files[@]}"; exit 1
           fi
           echo "path=$(realpath "${files[0]}")" >> "$GITHUB_OUTPUT"
 
