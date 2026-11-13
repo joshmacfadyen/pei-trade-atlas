@@ -13,13 +13,21 @@ PLACES={ # representative port for each recorded country/colony
 PORTS={'Charlottetown':(-63.126,46.235),'Georgetown':(-62.533,46.183),'Bedeque':(-63.785,46.385),'Colville Bay':(-62.25,46.36),
  'Murray Harbour':(-62.52,46.0),'Malpeque':(-63.68,46.54),'Cascumpec':(-64.05,46.77),'New London':(-63.5,46.49),'Crapaud':(-63.49,46.24),
  'Grand River':(-63.87,46.5),'Orwell Bay':(-62.86,46.13),'Rustico':(-63.27,46.46),'Pinette':(-62.89,46.03),"St. Peter's":(-62.58,46.43),'Tignish':(-64.03,46.95)}
-CATS=[('0','Food & live animals'),('1','Beverages & tobacco'),('2','Crude materials'),('3','Mineral fuels'),
-      ('6','Manufactured goods'),('8','Misc. manufactured articles'),('X','Other')]
-CATDESC=['SITC 0 · grain, flour, fish, sugar, molasses, tea, livestock','SITC 1 · spirits, wine, beer, tobacco',
- 'SITC 2 · timber, salt, hides, seeds','SITC 3 · coal','SITC 6 · textiles, iron & steel, leather, hardware, cordage',
- 'SITC 8 · clothing, footwear, books, furniture','SITC 4, 5, 7, 9 · oils & fats, soap & paint, machinery, unclassified "miscellaneous"']
-sec2cat={'0':0,'1':1,'2':2,'3':3,'6':4,'8':5}
-df['cat']=df.sec.map(lambda x: sec2cat.get(x,6) if isinstance(x,str) else 6)
+# Display categories: these SITC sections each get their own colour; every other section is grouped as "Other".
+OWN_SECTIONS=['0','1','2','3','6','8']
+def fix(s):   # repair encoding slips in the SITC 4 sheet
+    return str(s).replace('Æ','’').replace('matT','maté').strip()
+ref={k:fix(v) for k,v in ref.items()}
+def short(name):   # "Crude materials, inedible, except fuels" -> "Crude materials"
+    s=re.split(r',| classified chiefly| \(', name)[0].strip()
+    return s
+def divlabel(name):   # keep division names whole, minus 'n.e.s.' and bracketed notes
+    return re.sub(r'\s*\(.*?\)|,?\s*n\.e\.s\.?','',name).strip(' ,')
+other_secs=[k for k in '0123456789' if k not in OWN_SECTIONS]
+CATS=[dict(key=k,name=ref[k],label=short(ref[k]),desc=f'SITC section {k}') for k in OWN_SECTIONS]
+CATS.append(dict(key='X',name='Other',label='Other',desc='SITC sections '+', '.join(f"{k} ({short(ref[k]).lower()})" for k in other_secs)))
+sec2cat={k:i for i,k in enumerate(OWN_SECTIONS)}
+df['cat']=df.sec.map(lambda x: sec2cat.get(x,len(OWN_SECTIONS)) if isinstance(x,str) else len(OWN_SECTIONS))
 def divkey(r):
     if not isinstance(r.code,str): return 'u'
     return r.code[:2] if len(r.code)>=2 else r.code+'*'
@@ -42,7 +50,7 @@ g=df.groupby(['d','yi','c','p','cat','dk','art'],as_index=False).v.sum()
 rows=[[0 if r.d=='Imports' else 1,int(r.yi),places.index(r.c),ports.index(r.p),int(r.cat),r.dk,arts.index(r.art),round(float(r.v),3)] for r in g.itertuples()]
 out=dict(places=[dict(name=p,lon=PLACES.get(p,(None,)*3)[0],lat=PLACES.get(p,(None,)*3)[1],rep=PLACES.get(p,(None,)*3)[2]) for p in places],
   ports=[dict(name=p,lon=PORTS.get(p,(None,None))[0],lat=PORTS.get(p,(None,None))[1]) for p in ports],
-  cats=[dict(key=k,name=n,desc=d) for (k,n),d in zip(CATS,CATDESC)], divs=divs, secs=secs, arts=arts, rows=rows)
+  cats=CATS, divs={k:dict(name=v,label=divlabel(v)) for k,v in divs.items()}, secs=secs, arts=arts, rows=rows)
 # per-entry records for the source appendix (indices align with places/ports above)
 R=json.load(open('routes.json'))
 if 'ports' in R:
