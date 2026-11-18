@@ -28,7 +28,12 @@ const gbp=v=>'£'+fInt(v);
 function gbpS(v){ if(v>=1e6) return '£'+d3.format('.2~f')(v/1e6)+'M'; if(v>=1e4) return '£'+d3.format('.0f')(v/1e3)+'k'; if(v>=1e3) return '£'+d3.format('.1f')(v/1e3)+'k'; return '£'+fInt(v); }
 function lsd(v){ let p=Math.floor(v), s=(v-p)*20, sh=Math.floor(s+1e-9), d=Math.round((s-sh)*12); if(d===12){d=0;sh++;} if(sh===20){sh=0;p++;} return '£'+fInt(p)+' '+sh+'s '+d+'d'; }
 function pct(a,b){ if(!b) return '–'; const x=a/b*100; if(x===0) return '0%'; if(x<0.1) return '<0.1%'; return (x<10? x.toFixed(1): x.toFixed(0))+'%'; }
-const ccol=i=>`var(--c${i})`, oncol=i=>`var(--on-c${i})`;
+const ccol=i=>`var(--s${CATS[i].key})`, oncol=i=>`var(--on-s${CATS[i].key})`;   // colour follows the SITC section, not its place in the list
+// Pies, stacked bars and sunburst rings draw categories in this order: the categorical palette passes its
+// colour-blindness and normal-vision checks for neighbouring colours only in this sequence (see atlas.css).
+const DRAW_PREF=['0','1','2','3','6','8','4','5','X'];
+const DRAW=CATS.map((c,i)=>i).sort((a,b)=>{ const r=i=>{ const j=DRAW_PREF.indexOf(CATS[i].key); return j<0? 50+i : j; }; return r(a)-r(b); });
+const DRANK=new Map(DRAW.map((i,r)=>[i,r]));
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
 function sup(n){ const s=el('sup','n'); const a=el('a',null,String(n)); a.href='#note-'+n; a.dataset.note=n; s.append(a); return s; }
 const dirL=()=>DIRS[state.dir].toLowerCase();
@@ -85,9 +90,9 @@ function tipBreakdown(t,name,rows,extra){
 function bindNode(sel,keyOf,tipOf,labelOf,onChange){
   sel.attr('tabindex',-1).attr('role','button').attr('aria-label',d=>labelOf(d))
     .on('pointerenter pointermove',(e,d)=>{ const k=keyOf(d); if(state.hover!==k){ state.hover=k; onChange(); } showTip(e,t=>tipOf(t,d)); })
-    .on('pointerleave',()=>{ state.hover=null; hideTip(); onChange(); })
-    .on('focus',(e,d)=>{ state.hover=keyOf(d); onChange(); showTip(e,t=>tipOf(t,d)); })
-    .on('blur',()=>{ state.hover=null; hideTip(); onChange(); })
+    .on('pointerleave',()=>{ hideTip(); if(state.hover!==null){ state.hover=null; onChange(); } })
+    .on('focus',(e,d)=>{ const k=keyOf(d); if(state.hover!==k){ state.hover=k; onChange(); } showTip(e,t=>tipOf(t,d)); })
+    .on('blur',()=>{ hideTip(); if(state.hover!==null){ state.hover=null; onChange(); } })   // redraw only on a real change: a redraw mid-click would swap the clicked button out
     .on('click',(e,d)=>{ e.stopPropagation(); togglePin(keyOf(d)); hideTip(); })
     .on('keydown',(e,d)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); togglePin(keyOf(d)); } });
 }
@@ -126,7 +131,7 @@ function drawPie(g,sums,r,opts={}){
   if(tot<=0||r<=0){ g.append('circle').attr('r',2.2).style('fill','var(--hair)'); return; }
   g.append('circle').attr('r',r+1.6).style('fill',ground);
   if(r<4.5){ g.append('circle').attr('r',Math.max(r,2.8)).style('fill',ccol(d3.maxIndex(sums))).style('stroke','var(--ink-2)').style('stroke-opacity',.6).style('stroke-width',.7); return; }
-  const data=pieGen(sums.map((v,i)=>({v,i})).filter(d=>d.v>0));
+  const data=pieGen(sums.map((v,i)=>({v,i})).filter(d=>d.v>0).sort((a,b)=>DRANK.get(a.i)-DRANK.get(b.i)));
   g.selectAll('path').data(data).join('path').attr('d',d3.arc().innerRadius(0).outerRadius(r)).style('fill',d=>ccol(d.data.i))
     .style('stroke',ground).style('stroke-width',data.length>1?(opts.gap||(r>14?1.6:1)):0).style('stroke-linejoin','round');
   g.append('circle').attr('r',r).style('fill','none').style('stroke','var(--ink-2)').style('stroke-opacity',.55).style('stroke-width',.75);
@@ -252,16 +257,17 @@ function marginSelection(host,o){
     drawPie(svg.append('g'),cs,w/2-3,{labels:true,ground:'var(--paper)',gap:2}); wrap.append(box); }
   const h=el('h4',null,'By SITC category'); h.append(sup(3)); wrap.append(h);
   const ul=el('div','key'); ul.setAttribute('role','group'); ul.setAttribute('aria-label','SITC categories'); const mx=d3.max(cs)||1;
-  cs.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v||a.i-b.i).forEach(d=>{
+  const filtered=state.cat>=0||!!state.search, zeros=cs.filter(v=>!(v>0)).length;   // under a filter, empty categories are one line, not a column of "none"
+  cs.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v||a.i-b.i).filter(d=>!filtered||d.v>0||state.cat===d.i).forEach(d=>{
     const li=el('div', d.v>0?'on':'zero'); const nm=el('span','k-name'); const sw=el('span','sw'); sw.style.background=ccol(d.i);
     const lab=el('span',null,CATS[d.i].label); nm.append(sw,lab); if(d.i===OTHER) lab.append(el('sup','n','4'));
     const bar=el('span','k-bar'); const fi=el('i'); fi.style.width=(d.v/mx*100)+'%'; fi.style.background=ccol(d.i); bar.append(fi);
     li.append(nm, el('span','k-val',d.v>0?gbpS(d.v):'none'), el('span','k-pct',d.v>0?pct(d.v,tot):''), bar); li.title=`${CATS[d.i].name}: ${CATS[d.i].desc}`;
-    if(d.v>0||state.cat===d.i){ li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-pressed',String(state.cat===d.i)); li.setAttribute('aria-label',`${CATS[d.i].label}: ${gbp(d.v)}. ${state.cat===d.i?'Show all categories':'Show only this category'}.`);
+    if(d.v>0||state.cat===d.i){ li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-pressed',String(state.cat===d.i)); li.setAttribute('aria-label',`${CATS[d.i].label}: ${gbp(d.v)}. ${state.cat===d.i?'Show all categories':'Show only this category and break it down by division'}.`);
       const act=()=>{ state.cat=state.cat===d.i?-1:d.i; renderAll(); }; li.addEventListener('click',act); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } }); }
     ul.append(li);
   });
-  wrap.append(ul);
+  wrap.append(ul); if(filtered&&zeros&&tot>0) wrap.append(el('p','m-note',`The other ${zeros} ${zeros===1?'category has':'categories have'} no entries in this selection.`)); wrap.append(breakdown(state.lock));   // pinned selection only: following hover would resize the margin under the pointer
   const nE=DATA.entries.filter(e=>entryMatch(e,k)).length;
   const ml=el('div','mlinks');
   if(nE){ const b=el('button','textbtn',`Check the ${fInt(nE)} source ${nE===1?'entry':'entries'} (Appendix B)`); b.type='button'; b.addEventListener('click',()=>{ if(k&&state.lock!==k){ state.lock=k; state.hover=null; renderPinned(); updateView(); } openEntries(); }); ml.append(b); }
@@ -270,6 +276,50 @@ function marginSelection(host,o){
   if(state.cat>=0){ const b=el('button','textbtn','Show all categories'); b.type='button'; b.addEventListener('click',()=>{ state.cat=-1; renderAll(); }); wrap.append(b); }
   return wrap;
 }
+/* ---------- SITC breakdown (Plates A and B): a category's divisions, groups and subgroups ----------
+   Ranked horizontal bars in the category's one hue, largest first, each with its name and figure (a meter
+   list). A row with finer codes below it drills down; the crumbs climb back up. Scope = the key above:
+   filters, goods search and whatever is pinned (not hovered, so the margin keeps still under the pointer). */
+const TIERS=[{word:'division',tier:'two',n:2},{word:'group',tier:'three',n:3},{word:'subgroup',tier:'four',n:4}];
+const BRK_TOP=8;
+function brkKey(e,depth){ if(depth===0) return e[17]; const c=e[5]||'', n=TIERS[depth].n; return c.length>=n? c.slice(0,n) : '~'; }
+function brkName(key,depth){ if(key==='~') return 'No finer code'; if(depth===0) return /^\d\d$/.test(key)? `${key} ${divInfo(key).name}` : divInfo(key).name; return `${key} ${sitcName(key)}`; }
+function breakdown(k){
+  const sec=el('section','m-brk');
+  if(state.cat<0){ sec.append(el('p','m-note','Choose a category above to break it down by SITC division, group and subgroup.')); return sec; }
+  if(state.brkCat!==state.cat||state.brkDir!==state.dir){ state.brk=[]; state.brkAll=false; state.brkCat=state.cat; state.brkDir=state.dir; }
+  let rows=DATA.entries.filter(e=>entryMatch(e,k)); const path=[];
+  for(let d=0; d<(state.brk||[]).length; d++){ const key=state.brk[d], sub=rows.filter(e=>brkKey(e,d)===key); if(!sub.length) break; rows=sub; path.push(key); }   // keep only the part of the path that still exists
+  state.brk=path;
+  const depth=path.length, here=depth? brkName(path[depth-1],depth-1) : CATS[state.cat].label, T=TIERS[depth];
+  const go=(p,all)=>{ state.brk=p; state.brkAll=!!all; state.brkFocus=true; updateView(); };
+  const h=el('h4',null,`${here} by SITC ${T.word} (tier ${T.tier})${k? ', '+keyLabel(k) : ''}`); sec.append(h);
+  if(depth){ const cr=el('nav','crumbs'); cr.setAttribute('aria-label','Breakdown path');
+    const steps=[[CATS[state.cat].label,[]], ...path.map((key,i)=>[brkName(key,i),path.slice(0,i+1)])];
+    steps.forEach(([lab,p],i)=>{ if(i) cr.append(el('span',null,'/')); if(i===steps.length-1) cr.append(el('span',null,lab)); else { const b=el('button',null,lab); b.type='button'; b.addEventListener('click',()=>go(p)); cr.append(b); } });
+    sec.append(cr); }
+  const groups=d3.rollups(rows,v=>d3.sum(v,e=>e[12]),e=>brkKey(e,depth)).sort((a,b)=>b[1]-a[1]), tot=d3.sum(groups,g=>g[1]), mx=groups.length? groups[0][1] : 1;
+  if(!groups.length){ sec.append(el('p','m-note','Nothing recorded for this selection.')); return sec; }
+  const list=el('div','key brk'); list.setAttribute('role','group'); list.setAttribute('aria-label',h.textContent);
+  const shown=state.brkAll? groups : groups.slice(0,BRK_TOP); let first=null;
+  shown.forEach(([key,v])=>{
+    const sub=rows.filter(e=>brkKey(e,depth)===key), drill=depth<TIERS.length-1&&key!=='~'&&sub.some(e=>(e[5]||'').length>=TIERS[depth+1].n);
+    const row=el('div', drill? 'on' : ''), nm=el('span','k-name'); nm.append(el('span',null,brkName(key,depth)));
+    const bar=el('span','k-bar'), fi=el('i'); fi.style.width=(v/mx*100)+'%'; fi.style.background=ccol(state.cat); bar.append(fi);
+    row.append(nm, el('span','k-val',gbpS(v)), el('span','k-pct',pct(v,tot)), bar);
+    if(drill){ row.tabIndex=0; row.setAttribute('role','button'); row.setAttribute('aria-label',`${brkName(key,depth)}: ${gbp(v)}, ${pct(v,tot)}. Break it down by ${TIERS[depth+1].word}.`); row.title=`Break down by ${TIERS[depth+1].word}`;
+      const act=()=>go([...path,key]); row.addEventListener('click',act); row.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } }); if(!first) first=row; }
+    list.append(row); });
+  sec.append(list);
+  const ml=el('div','mlinks');
+  if(groups.length>BRK_TOP){ const b=el('button','textbtn',state.brkAll? `Show the largest ${BRK_TOP}` : `Show all ${groups.length} ${T.word}s`); b.type='button'; b.addEventListener('click',()=>go(path,!state.brkAll)); ml.append(b); }
+  { const b=el('button','textbtn','Open this breakdown in the sunburst (Plate C)'); b.type='button';
+    b.addEventListener('click',()=>{ state.hier=1; C.pending=['c'+state.cat, ...path.map((key,i)=>['d','g','s'][i]+key)]; setView('sunburst',true); }); ml.append(b); }
+  sec.append(ml);
+  if(state.brkFocus){ state.brkFocus=false; setTimeout(()=>{ (first||sec.querySelector('.crumbs button')||h).focus?.(); },0); }   // keyboard users stay in the panel after drilling
+  if(!first) h.tabIndex=-1;
+  return sec;
+}
 function harbourList(onChange){
   const rows=cur(), list=rank(rows,'po'), sec=el('section','m-harb');
   const h=el('h4',null, state.dir===0? 'Leading category by harbour of entry' : 'Leading category by harbour of shipment'); sec.append(h);
@@ -277,13 +327,13 @@ function harbourList(onChange){
   list.forEach(([po,v])=>{
     const cs=catSums(rows.filter(r=>r.po===po)), ci=d3.maxIndex(cs), li=el('div'); li.dataset.po=po;
     li.append(el('span','h-name',PORTS[po].name), el('span','h-val',gbpS(v)));
-    const bar=el('span','h-bar'); cs.forEach((x,i)=>{ if(x>0){ const s=el('i'); s.style.flex=String(x); s.style.background=ccol(i); bar.append(s);} }); bar.setAttribute('aria-hidden','true');
+    const bar=el('span','h-bar'); DRAW.forEach(i=>{ const x=cs[i]; if(x>0){ const s=el('i'); s.style.flex=String(x); s.style.background=ccol(i); bar.append(s);} }); bar.setAttribute('aria-hidden','true');
     const lead=el('span','h-lead'); const sw=el('span','sw'); sw.style.background=ccol(ci); lead.append(sw, document.createTextNode(state.cat>=0? `${pct(v,sum(rows))} of the category` : `${CATS[ci].label}, ${pct(cs[ci],v)}`));
     li.append(bar,lead); li.tabIndex=0; li.setAttribute('role','button'); li.setAttribute('aria-label',`${PORTS[po].name}, ${gbp(v)}. Leading: ${CATS[ci].label}, ${pct(cs[ci],v)}. Select to pin.`);
     const key='po:'+po;
     li.addEventListener('pointerenter',()=>{ if(state.hover!==key){ state.hover=key; onChange(); } });
-    li.addEventListener('pointerleave',()=>{ state.hover=null; onChange(); });
-    li.addEventListener('focus',()=>{ state.hover=key; onChange(); }); li.addEventListener('blur',()=>{ state.hover=null; onChange(); });
+    li.addEventListener('pointerleave',()=>{ if(state.hover!==null){ state.hover=null; onChange(); } });
+    li.addEventListener('focus',()=>{ if(state.hover!==key){ state.hover=key; onChange(); } }); li.addEventListener('blur',()=>{ if(state.hover!==null){ state.hover=null; onChange(); } });
     li.addEventListener('click',()=>togglePin(key)); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); togglePin(key);} });
     ol.append(li);
   });
@@ -628,7 +678,7 @@ function renderSunburst(){
   const nested=d3.rollup(rows,v=>d3.sum(v,e=>e[12]),...spec.map(s=>s.key));
   const root=d3.hierarchy([state.lock? `Pinned: ${keyLabel(state.lock)}` : scopeTitle(),nested],([,v])=>v instanceof Map?Array.from(v):null).sum(([,v])=>typeof v==='number'?v:0);
   root.each(n=>{ n.kind=n.depth===0?'root':spec[n.depth-1].kind; n.label=n.depth===0?n.data[0]:spec[n.depth-1].name(n.data[0]); n.ring=n.depth&&spec[n.depth-1].short? spec[n.depth-1].short(n.data[0]) : n.label; n.catIdx=n.kind==='cat'?+n.data[0].slice(1):(n.parent&&n.parent.catIdx!=null?n.parent.catIdx:null); n.catDepth=n.kind==='cat'?n.depth:(n.parent?n.parent.catDepth:null); });
-  root.sort((a,b)=>(a.kind==='cat'&&b.kind==='cat')?a.catIdx-b.catIdx:b.value-a.value);
+  root.sort((a,b)=>(a.kind==='cat'&&b.kind==='cat')?DRANK.get(a.catIdx)-DRANK.get(b.catIdx):b.value-a.value);
   d3.partition().size([2*Math.PI,root.height+1])(root); root.each(d=>d.current=d);
   C.root=root; C.focus=root;
   const arc=d3.arc().startAngle(d=>d.x0).endAngle(d=>d.x1).padAngle(d=>Math.min((d.x1-d.x0)/2,0.006)).padRadius(radius*1.5).innerRadius(d=>d.y0*radius).outerRadius(d=>Math.max(d.y0*radius,d.y1*radius-1.5));
@@ -672,7 +722,8 @@ function renderSunburst(){
   // arcs squeezed to zero width by the zoom are not stops; inner ring first, then clockwise; the centre (zoom out) last
   rove(svg.node(),n=>{ if(n.tagName==='circle') return true; const t=pos(n); return vis(t)&&t.x1-t.x0>1e-6; },(a,b)=>{ const p=pos(a), q=pos(b); if(!p||!q) return p? -1 : q? 1 : 0; return p.y0-q.y0||p.x0-q.x0; });
   C.zoom=zoom; setCenter(root); renderCMargin(); setFoot('c-foot');
-  let target=root; for(const key of prevPath){ const nx=(target.children||[]).find(c=>c.data[0]===key); if(!nx) break; target=nx; }
+  const want=C.pending||prevPath; C.pending=null;
+  let target=root; for(const key of want){ const nx=(target.children||[]).find(c=>c.data[0]===key); if(!nx) break; target=nx; }
   if(target!==root) zoom(target,true);
   else if(state.lock&&root.children&&root.children.length===1) zoom(root.children[0],true);   // open on the pinned place or harbour
 }
