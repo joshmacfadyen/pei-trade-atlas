@@ -29,7 +29,9 @@ import pandas as pd
 # ----------------------------------------------------------------------------------------------
 
 # SITC sections that get their own colour on the page, in key order. All others become "Other".
-OWN_SECTIONS = ['0', '1', '2', '3', '6', '8']
+# Sections with their own colour. The palette holds eight hues (the most that stay distinguishable,
+# including for colour-blind readers), so section 7 (machinery, under 0.1% of the trade) joins 9 in "Other".
+OWN_SECTIONS = ['0', '1', '2', '3', '4', '5', '6', '8']
 OTHER_KEY = 'X'
 
 # Where each recorded country or colony is drawn: (longitude, latitude, representative port).
@@ -104,7 +106,8 @@ def build_categories(sitc):
     categories = [dict(key=s, name=sitc[s], label=short_label(sitc[s]), desc=f'SITC section {s}')
                   for s in OWN_SECTIONS]
     other_sections = [s for s in '0123456789' if s not in OWN_SECTIONS]
-    other_list = ', '.join(f'{s} ({short_label(sitc[s]).lower()})' for s in other_sections)
+    lower_first = lambda t: t[:1].lower() + t[1:]   # keeps 'SITC' in capitals
+    other_list = ', '.join(f'{s} ({lower_first(short_label(sitc[s]))})' for s in other_sections)
     categories.append(dict(key=OTHER_KEY, name='Other', label='Other', desc=f'SITC sections {other_list}'))
     return categories
 
